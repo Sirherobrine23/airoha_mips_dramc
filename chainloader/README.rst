@@ -82,7 +82,7 @@ Self-check
 ----------
 
 The BootROM validates its own XMODEM download with an 8-bit checksum, which
-lets corruption through. ``tools/econet_chainloader_image.py`` stores a CRC32 of
+lets corruption through. ``tools/econet-image chainloader`` stores a CRC32 of
 the image in its last loaded word and pads to 128 bytes; the chainloader
 recomputes it in DRAM and refuses to continue on a mismatch::
 

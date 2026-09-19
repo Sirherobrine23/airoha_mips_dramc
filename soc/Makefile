@@ -7,9 +7,11 @@ endif
 SRCTREE ?= $(abspath $(CURDIR))
 O ?= $(SRCTREE)/out
 OUT := $(abspath $(O))/$(SOC)
-PYTHON3 ?= python3
 UBOOT_LOAD_ADDR ?= 0x81000000
 LLVM ?= 0
+HOSTCC ?= cc
+HOSTCFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
+HOST_TOOL ?= $(abspath $(O))/host/econet-image
 
 SOC_CONFIG := $(SRCTREE)/soc/$(SOC).mk
 ifeq ($(wildcard $(SOC_CONFIG)),)
@@ -38,48 +40,61 @@ CHAINLOAD_IMAGE := $(OUT)/$(SOC)-chainload.bin
 RECOVERY_IMAGE := $(OUT)/$(SOC)-recovery-chainloader.bin
 TCBOOT_IMAGE := $(OUT)/tcboot.bin
 
-TOOL_ENV = \
-	srctree="$(SRCTREE)" objtree="$(OUT)" \
-	CROSS_COMPILE="$(CROSS_COMPILE)" \
-	TOOL_CC="$(TOOL_CC)" TOOL_LD="$(TOOL_LD)" \
-	TOOL_OBJCOPY="$(TOOL_OBJCOPY)" TOOL_NM="$(TOOL_NM)" \
-	TOOL_CC_TARGET="$(TOOL_CC_TARGET)" \
-	PYTHON3="$(PYTHON3)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
-	UBOOT_OFFSET="$(SOC_UBOOT_OFFSET)"
 
 .PHONY: all dramc chainload recovery tcboot clean
 
 all: dramc chainload $(if $(filter y,$(SOC_RECOVERY_CHAINLOADER)),recovery)
 
+$(HOST_TOOL): $(SRCTREE)/tools/econet-image.c
+	@mkdir -p "$(dir $@)"
+	@tmp="$@.$$$$.tmp"; \
+		$(HOSTCC) $(HOSTCFLAGS) "$<" -o "$$tmp" && mv -f "$$tmp" "$@"
+
 dramc:
 	@mkdir -p "$(OUT)"
-	@$(TOOL_ENV) DDR_OUTPUT="$(DDR_IMAGE)" \
-		"$(SRCTREE)/tools/build-econet-ddr.sh" "$(SOC)"
+	+@$(MAKE) --no-print-directory -f "$(SRCTREE)/dramc/Makefile" \
+		SRCTREE="$(SRCTREE)" OUT="$(OUT)" SOC="$(SOC)" \
+		CROSS_COMPILE="$(CROSS_COMPILE)" TOOL_CC="$(TOOL_CC)" \
+		TOOL_LD="$(TOOL_LD)" TOOL_OBJCOPY="$(TOOL_OBJCOPY)" \
+		TOOL_CC_TARGET="$(TOOL_CC_TARGET)" OUTPUT="$(DDR_IMAGE)" all
 	@printf '  DRAMC      %s\n' "$(DDR_IMAGE)"
 
 chainload:
 	@mkdir -p "$(OUT)"
-	@$(TOOL_ENV) CHAINLOAD_OUTPUT="$(CHAINLOAD_IMAGE)" \
-		"$(SRCTREE)/tools/build-econet-chainload.sh" "$(SOC)"
+	+@$(MAKE) --no-print-directory -f "$(SRCTREE)/flash/Makefile" \
+		SRCTREE="$(SRCTREE)" OUT="$(OUT)" SOC="$(SOC)" \
+		CROSS_COMPILE="$(CROSS_COMPILE)" TOOL_CC="$(TOOL_CC)" \
+		TOOL_LD="$(TOOL_LD)" TOOL_OBJCOPY="$(TOOL_OBJCOPY)" \
+		TOOL_CC_TARGET="$(TOOL_CC_TARGET)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
+		UBOOT_OFFSET="$(SOC_UBOOT_OFFSET)" CHAIN_OUTPUT="$(CHAINLOAD_IMAGE)" chainload
 	@printf '  CHAINLOAD  %s\n' "$(CHAINLOAD_IMAGE)"
 
-recovery:
+recovery: $(HOST_TOOL)
 ifeq ($(SOC_RECOVERY_CHAINLOADER),y)
 	@mkdir -p "$(OUT)"
-	@$(TOOL_ENV) RECOVERY_CHAINLOADER_OUTPUT="$(RECOVERY_IMAGE)" \
-		"$(SRCTREE)/tools/build-econet-chainloader.sh" "$(SOC)"
+	+@$(MAKE) --no-print-directory -f "$(SRCTREE)/chainloader/Makefile" \
+		SRCTREE="$(SRCTREE)" OUT="$(OUT)" SOC="$(SOC)" \
+		CROSS_COMPILE="$(CROSS_COMPILE)" TOOL_CC="$(TOOL_CC)" \
+		TOOL_LD="$(TOOL_LD)" TOOL_OBJCOPY="$(TOOL_OBJCOPY)" \
+		TOOL_CC_TARGET="$(TOOL_CC_TARGET)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
+		HOST_TOOL="$(HOST_TOOL)" OUTPUT="$(RECOVERY_IMAGE)" all
 	@printf '  RECOVERY   %s\n' "$(RECOVERY_IMAGE)"
 else
 	@echo "error: $(SOC) has no BootROM recovery chainloader" >&2; exit 2
 endif
 
-tcboot: dramc
+tcboot: dramc $(HOST_TOOL)
 ifeq ($(SOC_TCBOOT),y)
 	@test -n "$(UBOOT_IMAGE)" || { echo "error: UBOOT_IMAGE=/path/to/u-boot.img is required" >&2; exit 2; }
 	@test -f "$(UBOOT_IMAGE)" || { echo "error: U-Boot image not found: $(UBOOT_IMAGE)" >&2; exit 2; }
-	@$(TOOL_ENV) DDR_IMAGE="$(DDR_IMAGE)" \
-		UBOOT_IMAGE="$(abspath $(UBOOT_IMAGE))" TCBOOT_OUTPUT="$(TCBOOT_IMAGE)" \
-		"$(SRCTREE)/tools/build-econet-flash.sh" "$(SOC)"
+	+@$(MAKE) --no-print-directory -f "$(SRCTREE)/flash/Makefile" \
+		SRCTREE="$(SRCTREE)" OUT="$(OUT)" SOC="$(SOC)" \
+		CROSS_COMPILE="$(CROSS_COMPILE)" TOOL_CC="$(TOOL_CC)" \
+		TOOL_LD="$(TOOL_LD)" TOOL_OBJCOPY="$(TOOL_OBJCOPY)" TOOL_NM="$(TOOL_NM)" \
+		TOOL_CC_TARGET="$(TOOL_CC_TARGET)" HOST_TOOL="$(HOST_TOOL)" \
+		UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" UBOOT_OFFSET="$(SOC_UBOOT_OFFSET)" \
+		DDR_IMAGE="$(DDR_IMAGE)" UBOOT_IMAGE="$(abspath $(UBOOT_IMAGE))" \
+		TCBOOT_OUTPUT="$(TCBOOT_IMAGE)" tcboot
 	@printf '  TCBOOT     %s\n' "$(TCBOOT_IMAGE)"
 else
 	@echo "error: standalone tcboot packaging is not implemented for $(SOC)" >&2; exit 2

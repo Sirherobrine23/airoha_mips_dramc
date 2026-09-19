@@ -97,6 +97,21 @@ make tcboot SOC=en7528 UBOOT_IMAGE=/path/to/u-boot.img
 
 The result is `out/<soc>/tcboot.bin`.  EN7580 TCBoot packaging remains WIP.
 
+## Host image tool
+
+The image finalizers are built as a native C utility at
+`out/host/econet-image`.  The build no longer requires Python for image
+packing or tests.  Its subcommands replace the former `tools/*.py` helpers:
+
+```text
+econet-image chainloader  # CRC table + XMODEM padding
+econet-image flash        # build the 1 MiB TCBoot-compatible image
+econet-image tcboot       # finalize legacy TCBoot/Binman images
+econet-image selftest     # host-side regression tests
+```
+
+The normal `make <soc>` targets build the host utility automatically.
+
 ## Tests
 
 Host-side image-layout tests do not require a MIPS toolchain:
@@ -108,9 +123,10 @@ make test
 ## Layout
 
 - `dramc/<soc>/` — DRAM initialization/calibration source or preserved payload.
-- `flash/` — standalone flash reader and TCBoot startup stages.
-- `chainloader/` — EN751221 BootROM/XMODEM recovery chainloader.
+- `dramc/Makefile` — standalone DRAMC builder for all supported SoCs.
+- `flash/` — flash reader, TCBoot startup stages and Makefile for both `chainload` and `tcboot`.
+- `chainloader/` — EN751221 BootROM/XMODEM recovery chainloader and Makefile.
 - `include/` — standalone early-boot headers; no U-Boot include tree required.
 - `soc/*.mk` — per-SoC toolchain/capability metadata.
-- `tools/` — standalone builders and host-side image tools.
+- `tools/` — only the native `econet-image.c` host image tool; the build path has no shell/Python helper scripts.
 - `tpl/`, `spl/` — older U-Boot-integrated early-boot path retained as reference.

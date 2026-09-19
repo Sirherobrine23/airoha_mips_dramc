@@ -16,7 +16,7 @@ ENTRY(_start)
 	 * "6578" for both endian modes.  The vendor 128 KiB EN751221 layout
 	 * treats the image at 0x10000 as bootram, while the newer 256 KiB layout
 	 * treats the executable loader at 0x10000 as lzma.img.  Binman creates
-	 * the fixed placement and tools/econet_tcboot_image.py patches the actual
+	 * the fixed placement and tools/econet-image tcboot patches the actual
 	 * end address and CRC words after the image is assembled.
 	 */
 	.org	0x08

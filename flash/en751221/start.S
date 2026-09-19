@@ -75,13 +75,13 @@ __start:
 /*
  * This board's real dumped tcboot header is the smaller, 16-word (64
  * byte) revision -- boot_start at +0x48, patched in by
- * econet_flash_image.py at offsets 0x10/0x14/0x18/0x1c (matching this
+ * tools/econet-image flash at offsets 0x10/0x14/0x18/0x1c (matching this
  * file's own "for lzma_start/end/boot_start/boot_end address" comments)
  * -- not the larger 22-word revision the rest of this archived vendor
  * text describes (which reserves +0x20..+0x5c for en7526c-only backdoor/
  * bypass fields and a *second*, later set of move_data/boot2/spram
  * addresses). Truncated to match the real, hardware-verified header;
- * econet_flash_image.py's pack() asserts word 0 is "j 0xbfc00048" for
+ * tools/econet-image flash's pack() asserts word 0 is "j 0xbfc00048" for
  * en751221, which only holds with this shorter header.
  */
 header_start:

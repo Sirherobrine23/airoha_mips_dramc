@@ -9,7 +9,7 @@ SECTIONS
 	.data : ALIGN(4) { *(.data .data.*) }
 	.got : ALIGN(4) { *(.got .got.*) }
 	/* Tabela de CRC32 por bloco de 128 B, gravada depois do link pelo
-	 * patch_crc.py. Fica por ultimo: tudo antes dela e o que e conferido.
+	 * tools/econet-image chainloader. Fica por ultimo: tudo antes dela e o que e conferido.
 	 */
 	.imgchk : ALIGN(4) { __chk_start = .; FILL(0x00000000) . = . + 96 * 4; }
 	__image_load_end = .;

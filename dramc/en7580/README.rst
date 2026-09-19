@@ -10,5 +10,7 @@ relocations are represented with ``.reloc`` directives.
 The resulting code is therefore source-controlled and reproducible without
 shipping ``.o`` or DDR ``.bin`` files. It executes at ``0x9fa30000``.
 
-Use ``tools/build-econet-ddr.sh en7580`` with a GNU MIPS little-endian toolchain.
-The ARM Cortex-A7 OpenWrt toolchain is not suitable for this target.
+Use ``make en7580`` with a GNU MIPS little-endian toolchain.  The current
+``R_MIPS16_26`` reconstruction requires GNU as/binutils; LLVM integrated-as
+does not accept those relocations yet.  The ARM Cortex-A7 OpenWrt toolchain
+is not suitable for this target.

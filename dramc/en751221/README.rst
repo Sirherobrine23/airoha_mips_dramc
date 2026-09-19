@@ -19,6 +19,6 @@ The vendor recovery baseline was a 20336-byte ``spram.img``. A source build
 using a newer compiler is not required to be byte-identical; the ABI, SRAM
 VMA and hardware behaviour are the acceptance criteria.
 
-``tools/build-econet-ddr.sh en751221`` currently emits
-``en751221_ddr.bin`` as a temporary build artifact. It is not a checked-in
+The normal standalone build is ``make en751221``.  The DRAM payload is
+written to ``out/en751221/en751221-dramc.bin`` and is not a checked-in
 firmware blob.

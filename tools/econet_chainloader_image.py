@@ -4,7 +4,7 @@
 
 The chainloader reserves a CRC32 table at the end of its loadable image.  Each
 entry covers one 128-byte chunk of everything before the table, matching the
-self_check() implementation in arch/mips/mach-econet/chainloader/chainloader.c.
+self_check() implementation in chainloader/chainloader.c.
 The remaining table entries stay zero.
 
 The image is then padded to a multiple of 128 bytes so the BootROM does not

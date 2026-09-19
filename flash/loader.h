@@ -20,7 +20,9 @@ typedef uint32_t u32;
 #define __raw_readl(p)		(*(volatile u32 *)(p))
 #define __raw_writel(v, p)	(*(volatile u32 *)(p) = (v))
 
+#ifndef UBOOT_OFFSET
 #define UBOOT_OFFSET		0x20000U
+#endif
 #define IMAGE_LIMIT			0x100000U
 #define HEADER_SIZE			64U
 

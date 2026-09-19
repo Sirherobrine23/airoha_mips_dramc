@@ -4,10 +4,10 @@ EN751221 BootROM XMODEM chainloader
 What it is
 ----------
 
-``en751221-chainloader.bin`` is a ~9 KiB standalone loader for the EN751221
+``out/en751221/en751221-recovery-chainloader.bin`` is a small standalone loader for the EN751221
 internal BootROM recovery path. The BootROM downloads it to ``0x80009000``
 over XMODEM and jumps there; it then pulls an **unmodified** ``u-boot.bin``
-over XMODEM into ``CONFIG_TEXT_BASE`` and jumps to it.
+over XMODEM into the configured U-Boot load address (default ``0x81000000``) and jumps to it.
 
 Nothing in U-Boot proper changes. This replaces an earlier attempt at linking
 U-Boot itself at ``0x80009000`` so the BootROM could load it directly, which
@@ -18,8 +18,9 @@ second device tree and SoC breadcrumbs inside ``arch/mips/cpu/start.S`` and
 Use
 ---
 
-Enable ``CONFIG_ECONET_BOOTROM_CHAINLOADER`` (default ``y`` on
-``TARGET_EN751221``) and ``make``. The image lands next to ``u-boot.bin``.
+Run ``make en751221``.  The normal SoC target builds DRAMC, the flash
+chainload stage, and this recovery image.  To rebuild only the recovery image,
+use ``make en751221-recovery``.
 
 Hold the board in BootROM recovery, send the chainloader with the BootROM's
 own XMODEM, then send ``u-boot.bin`` to the chainloader::

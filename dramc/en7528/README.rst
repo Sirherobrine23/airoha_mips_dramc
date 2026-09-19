@@ -44,5 +44,5 @@ implementation.
 Until the original vendor TLB setup is restored, DRAM training uses the direct
 KSEG1 ``0xa0080000`` alias and bounded GDMA polling.
 
-Use ``tools/build-econet-ddr.sh en7528`` with a GNU MIPS little-endian
-toolchain.
+Use ``make en7528`` with a GNU MIPS little-endian toolchain, or
+``make LLVM=1 en7528`` with Clang/LLD.

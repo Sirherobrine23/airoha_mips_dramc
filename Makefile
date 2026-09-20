@@ -8,11 +8,7 @@ EXTRAVERSION =
 GIT_COMMIT = $(shell git rev-parse --verify HEAD 2>/dev/null)
 BUILD_DATE = $(shell date +"%d-%m-%Y %H:%M:%S %z")
 
-__PLAIN_VERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION) - $(BUILD_DATE) $(GIT_COMMIT)
-ifeq ($(PLAIN_VERSION),)
-PLAIN_VERSION = $(__PLAIN_VERSION)
-endif
-export PLAIN_VERSION
+PLAIN_VERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION) - $(BUILD_DATE) $(GIT_COMMIT)
 
 SOCS := en751221 en751627 en7528
 TCBOOT_SOCS := en751221 en751627 en7528
@@ -46,7 +42,7 @@ $(SOCS): $(HOST_TOOL)
 	+@$(MAKE) --no-print-directory -f "$(CURDIR)/soc/Makefile" \
 		SRCTREE="$(CURDIR)" O="$(abspath $(O))" SOC="$@" \
 		HOST_TOOL="$(HOST_TOOL)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
-		LLVM="$(LLVM)" all
+		LLVM="$(LLVM)" PLAIN_VERSION="$(PLAIN_VERSION)" all
 
 # Optional full TCBoot image packaging. This is intentionally not part of
 # `all`: the normal per-SoC build emits DRAMC + chainload and therefore does
@@ -56,32 +52,32 @@ tcboot: $(HOST_TOOL)
 	+@$(MAKE) --no-print-directory -f "$(CURDIR)/soc/Makefile" \
 		SRCTREE="$(CURDIR)" O="$(abspath $(O))" SOC="$(SOC)" \
 		HOST_TOOL="$(HOST_TOOL)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
-		UBOOT_IMAGE="$(UBOOT_IMAGE)" LLVM="$(LLVM)" tcboot
+		UBOOT_IMAGE="$(UBOOT_IMAGE)" LLVM="$(LLVM)" PLAIN_VERSION="$(PLAIN_VERSION)" tcboot
 
 $(addsuffix -tcboot,$(TCBOOT_SOCS)): $(HOST_TOOL)
 	+@$(MAKE) --no-print-directory -f "$(CURDIR)/soc/Makefile" \
 		SRCTREE="$(CURDIR)" O="$(abspath $(O))" SOC="$(patsubst %-tcboot,%,$@)" \
 		HOST_TOOL="$(HOST_TOOL)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
-		UBOOT_IMAGE="$(UBOOT_IMAGE)" LLVM="$(LLVM)" tcboot
+		UBOOT_IMAGE="$(UBOOT_IMAGE)" LLVM="$(LLVM)" PLAIN_VERSION="$(PLAIN_VERSION)" tcboot
 
 bootext: $(HOST_TOOL)
 	@test -n "$(SOC)" || { echo "usage: make bootext SOC=en7528" >&2; exit 2; }
 	+@$(MAKE) --no-print-directory -f "$(CURDIR)/soc/Makefile" \
 		SRCTREE="$(CURDIR)" O="$(abspath $(O))" SOC="$(SOC)" \
 		HOST_TOOL="$(HOST_TOOL)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
-		LLVM="$(LLVM)" bootext
+		LLVM="$(LLVM)" PLAIN_VERSION="$(PLAIN_VERSION)" bootext
 
 $(addsuffix -bootext,$(BOOTEXT_SOCS)): $(HOST_TOOL)
 	+@$(MAKE) --no-print-directory -f "$(CURDIR)/soc/Makefile" \
 		SRCTREE="$(CURDIR)" O="$(abspath $(O))" SOC="$(patsubst %-bootext,%,$@)" \
 		HOST_TOOL="$(HOST_TOOL)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
-		LLVM="$(LLVM)" bootext
+		LLVM="$(LLVM)" PLAIN_VERSION="$(PLAIN_VERSION)" bootext
 
 en751221-recovery: $(HOST_TOOL)
 	+@$(MAKE) --no-print-directory -f "$(CURDIR)/soc/Makefile" \
 		SRCTREE="$(CURDIR)" O="$(abspath $(O))" SOC=en751221 \
 		HOST_TOOL="$(HOST_TOOL)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
-		LLVM="$(LLVM)" recovery
+		LLVM="$(LLVM)" PLAIN_VERSION="$(PLAIN_VERSION)" recovery
 
 test: $(HOST_TOOL)
 	@"$(HOST_TOOL)" selftest

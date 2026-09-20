@@ -15,6 +15,7 @@ CROSS_COMPILE ?= mips-linux-gnu-
 TOOL_CC ?= $(CROSS_COMPILE)gcc
 TOOL_LD ?= $(CROSS_COMPILE)ld
 TOOL_OBJCOPY ?= $(CROSS_COMPILE)objcopy
+TOOL_NM ?= $(CROSS_COMPILE)nm
 TOOL_CC_TARGET ?=
 
 BUILD := $(OUT)/.recovery-chainloader
@@ -43,7 +44,13 @@ $(BUILD)/chainloader.elf: $(OBJS) $(SRCTREE)/chainloader/chainloader.lds
 $(OUTPUT): $(BUILD)/chainloader.elf $(HOST_TOOL)
 	@mkdir -p $(dir $@)
 	$(TOOL_OBJCOPY) -O binary $< $(BUILD)/chainloader.raw.bin
-	$(HOST_TOOL) chainloader --image $(BUILD)/chainloader.raw.bin --output $@.tmp
+	@set -eu; \
+		start_hex=`$(TOOL_NM) -n $< | awk '$$3 == "__image_start" { print $$1; exit }'`; \
+		check_hex=`$(TOOL_NM) -n $< | awk '$$3 == "__chk_start" { print $$1; exit }'`; \
+		test -n "$$start_hex" -a -n "$$check_hex"; \
+		check_off=$$((0x$$check_hex - 0x$$start_hex)); \
+		$(HOST_TOOL) chainloader --image $(BUILD)/chainloader.raw.bin \
+			--check-offset "$$check_off" --output $@.tmp
 	@mv -f $@.tmp $@
 
 clean:

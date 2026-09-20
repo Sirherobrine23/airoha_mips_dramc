@@ -111,20 +111,29 @@ static void uart_putc(u8 c)
 static void uart_puts(const char *s)
 {
 	while (*s) {
-		// if (*s == '\n')
-		// 	uart_putc('\r');
+		if (*s == '\n')
+			uart_putc('\r');
 		uart_putc((u8)*s++);
 	}
 }
 
-/* Only shifts and a table: no division in the diagnostic path. */
+/*
+ * Keep hexadecimal diagnostics independent of .rodata.  If the first-stage
+ * XMODEM transfer damages the image, a lookup table stored in .rodata can be
+ * corrupted too and turns the self-check report itself into binary garbage.
+ */
+static void put_hex4(u8 v)
+{
+	v &= 0x0f;
+	uart_putc(v < 10 ? (u8)('0' + v) : (u8)('a' + v - 10));
+}
+
 static void put_hex32(u32 v)
 {
-	static const char hex[] = "0123456789abcdef";
 	int shift;
 
 	for (shift = 28; shift >= 0; shift -= 4)
-		uart_putc(hex[(v >> shift) & 0xf]);
+		put_hex4((u8)(v >> shift));
 }
 
 /*
@@ -458,10 +467,8 @@ resync:
 
 static void put_hex8(u8 v)
 {
-	static const char hex8[] = "0123456789abcdef";
-
-	uart_putc(hex8[(v >> 4) & 0xf]);
-	uart_putc(hex8[v & 0xf]);
+	put_hex4(v >> 4);
+	put_hex4(v);
 }
 
 static u32 chunk_crc(const volatile u8 *img, u32 len, u32 i)
@@ -478,7 +485,7 @@ static u32 chunk_crc(const volatile u8 *img, u32 len, u32 i)
  * Checks the loaded image against the per-128-byte-block CRC32 table that
  * tools/econet-image chainloader wrote at its end: locates the block, not just flags failure.
  */
-static void self_check(void)
+static int self_check(void)
 {
 	const volatile u8 *img = (const volatile u8 *)&__image_start;
 	const volatile u32 *tab = (const volatile u32 *)&__chk_start;
@@ -503,7 +510,7 @@ static void self_check(void)
 	put_hex32(bad);
 	if (!bad) {
 		uart_puts(" OK\n");
-		return;
+		return 1;
 	}
 
 	uart_puts("\nbad idx:");
@@ -530,7 +537,8 @@ static void self_check(void)
 		if ((i & 0x1fu) == 0x1fu)
 			uart_putc('\n');
 	}
-	uart_puts("corrupted image; continuing anyway\n");
+	uart_puts("corrupted image; refusing to continue\n");
+	return 0;
 }
 
 /*
@@ -539,6 +547,7 @@ static void self_check(void)
  * physical address. Expected in both: 10111213 14151617 18191a1b 1c1d1e1f.
  */
 extern void chainload_jump(u32 entry) __attribute__((noreturn));
+static void halt(void) __attribute__((noreturn));
 
 static void report(void)
 {
@@ -610,7 +619,10 @@ void chainloader_main(void)
 	uart_puts("ticks/ms=0x");
 	put_hex32(ticks_per_ms);
 
-	self_check();
+	if (!self_check()) {
+		uart_puts("self-check failed; reset and resend chainloader\n");
+		halt();
+	}
 
 	uart_puts("waiting\n");
 

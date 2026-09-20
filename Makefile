@@ -17,7 +17,7 @@ HOST_TOOL := $(abspath $(O))/host/econet-image
 .PHONY: all clean test help tcboot $(SOCS) \
 	$(addsuffix -tcboot,$(TCBOOT_SOCS)) en751221-recovery hosttools
 
-all: $(SOCS)
+all: clean $(SOCS)
 
 hosttools: $(HOST_TOOL)
 

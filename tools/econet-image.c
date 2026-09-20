@@ -3,7 +3,7 @@
  * EcoNet/Airoha MIPS host-side image utility.
  *
  * Replaces the former Python helpers with one dependency-free C program:
- *   econet-image chainloader --image IN [--output OUT]
+ *   econet-image chainloader --image IN [--output OUT] [--check-offset OFF]
  *   econet-image flash --soc SOC --stages FILE --symbols FILE \
  *       --uboot FILE --load ADDR --output FILE [--minfo FILE]
  *   econet-image tcboot --soc SOC --image FILE [--output FILE] [--stock FILE]
@@ -232,19 +232,42 @@ static const struct tcboot_cfg *find_tcboot_cfg(const char *soc)
     return NULL;
 }
 
-static int finalize_chainloader(const char *input, const char *output)
+static int finalize_chainloader(const char *input, const char *output,
+                                bool have_check_offset, uint32_t check_offset)
 {
     struct blob in = read_file(input);
-    size_t check_start, chunks, padded_len, i;
+    size_t check_start, required_len, chunks, padded_len, i;
     uint8_t *out;
 
-    if (in.len <= CRC_TABLE_SIZE) {
+    if (have_check_offset) {
+        check_start = check_offset;
+        if (in.len < check_start) {
+            free_blob(&in);
+            fprintf(stderr,
+                    "econet-image: chainloader binary ends before __chk_start "
+                    "(len=0x%zx check=0x%zx)\n",
+                    in.len, check_start);
+            return 1;
+        }
+    } else {
+        if (in.len <= CRC_TABLE_SIZE) {
+            free_blob(&in);
+            fprintf(stderr, "econet-image: chainloader image too short\n");
+            return 1;
+        }
+        check_start = in.len - CRC_TABLE_SIZE;
+    }
+
+    required_len = check_start + CRC_TABLE_SIZE;
+    if (in.len > required_len) {
         free_blob(&in);
-        fprintf(stderr, "econet-image: chainloader image too short\n");
+        fprintf(stderr,
+                "econet-image: unexpected data after chainloader CRC table "
+                "(len=0x%zx expected<=0x%zx)\n",
+                in.len, required_len);
         return 1;
     }
 
-    check_start = in.len - CRC_TABLE_SIZE;
     chunks = (check_start + XMODEM_BLOCK - 1) / XMODEM_BLOCK;
     if (chunks > CRC_TABLE_ENTRIES) {
         free_blob(&in);
@@ -252,12 +275,14 @@ static int finalize_chainloader(const char *input, const char *output)
         return 1;
     }
 
-    padded_len = (in.len + XMODEM_BLOCK - 1) & ~(size_t)(XMODEM_BLOCK - 1);
+    padded_len = (required_len + XMODEM_BLOCK - 1) &
+                 ~(size_t)(XMODEM_BLOCK - 1);
     out = calloc(1, padded_len);
     if (!out)
         die("out of memory");
-    memcpy(out, in.data, in.len);
-    memset(out + check_start, 0, CRC_TABLE_SIZE);
+
+    /* Copy only the checked body. The CRC table is always regenerated. */
+    memcpy(out, in.data, check_start);
 
     for (i = 0; i < chunks; i++) {
         size_t start = i * XMODEM_BLOCK;
@@ -271,7 +296,7 @@ static int finalize_chainloader(const char *input, const char *output)
     }
 
     write_file(output ? output : input, out, padded_len);
-    printf("  CHAIN      %s: checked=0x%zx blocks=%zu table=%u size=%zu\n",
+    printf("  CHAIN      %s: checked=0x%zx blocks=%zu table=%u size=0x%zx\n",
            output ? output : input, check_start, chunks,
            CRC_TABLE_ENTRIES, padded_len);
 
@@ -628,7 +653,7 @@ static void usage(FILE *f)
 {
     fprintf(f,
         "usage:\n"
-        "  econet-image chainloader --image FILE [--output FILE]\n"
+        "  econet-image chainloader --image FILE [--output FILE] [--check-offset OFF]\n"
         "  econet-image flash --soc SOC --stages FILE --symbols FILE --uboot FILE\\\n\n"
         "      --load ADDR --output FILE [--minfo FILE]\n"
         "  econet-image tcboot --soc SOC --image FILE [--output FILE] [--stock FILE]\n"
@@ -647,6 +672,8 @@ static const char *next_arg(int *i, int argc, char **argv, const char *opt)
 static int cmd_chainloader(int argc, char **argv)
 {
     const char *image = NULL, *output = NULL;
+    uint32_t check_offset = 0;
+    bool have_check_offset = false;
     int i;
 
     for (i = 0; i < argc; i++) {
@@ -654,7 +681,11 @@ static int cmd_chainloader(int argc, char **argv)
             image = next_arg(&i, argc, argv, "--image");
         else if (!strcmp(argv[i], "--output"))
             output = next_arg(&i, argc, argv, "--output");
-        else {
+        else if (!strcmp(argv[i], "--check-offset")) {
+            check_offset = parse_u32(next_arg(&i, argc, argv,
+                                              "--check-offset"));
+            have_check_offset = true;
+        } else {
             usage(stderr);
             return 2;
         }
@@ -663,7 +694,8 @@ static int cmd_chainloader(int argc, char **argv)
         usage(stderr);
         return 2;
     }
-    return finalize_chainloader(image, output);
+    return finalize_chainloader(image, output,
+                                have_check_offset, check_offset);
 }
 
 static int cmd_flash(int argc, char **argv)

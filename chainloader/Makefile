@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0+
-# Build the EN751221 BootROM XMODEM recovery chainloader.
+# Build the XMODEM recovery/bootext chainloader.
 
 SRCTREE ?= $(abspath $(CURDIR)/..)
 OUT ?= $(SRCTREE)/out/$(SOC)
@@ -7,11 +7,23 @@ SOC ?=
 UBOOT_LOAD_ADDR ?= 0x81000000
 HOST_TOOL ?= $(SRCTREE)/out/host/econet-image
 
-ifneq ($(SOC),en751221)
-$(error recovery chainloader is only supported for en751221)
+ifeq ($(SOC),en751221)
+ENDIAN := -EB
+EMULATION := elf32btsmip
+CROSS_DEFAULT := mips-linux-gnu-
+CHAINLOADER_BASE ?= 0x80009000
+SOC_CPPFLAGS :=
+else ifeq ($(SOC),en7528)
+ENDIAN := -EL
+EMULATION := elf32ltsmip
+CROSS_DEFAULT := mipsel-linux-gnu-
+CHAINLOADER_BASE ?= 0x9fa35000
+SOC_CPPFLAGS := -DCHAINLOADER_EN7528
+else
+$(error recovery/bootext chainloader is not supported for $(SOC))
 endif
 
-CROSS_COMPILE ?= mips-linux-gnu-
+CROSS_COMPILE ?= $(CROSS_DEFAULT)
 TOOL_CC ?= $(CROSS_COMPILE)gcc
 TOOL_LD ?= $(CROSS_COMPILE)ld
 TOOL_OBJCOPY ?= $(CROSS_COMPILE)objcopy
@@ -20,8 +32,9 @@ TOOL_CC_TARGET ?=
 
 BUILD := $(OUT)/.recovery-chainloader
 OUTPUT ?= $(OUT)/$(SOC)-recovery-chainloader.bin
-CFLAGS := -EB -mabi=32 -mips32r2 -msoft-float -mno-abicalls -fno-pic \
-	-fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall
+CFLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls -fno-pic \
+	-fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
+	$(SOC_CPPFLAGS)
 OBJS := $(BUILD)/start.o $(BUILD)/chainloader.o
 
 .PHONY: all clean
@@ -38,7 +51,8 @@ $(BUILD)/chainloader.o: $(SRCTREE)/chainloader/chainloader.c $(SRCTREE)/chainloa
 		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
 
 $(BUILD)/chainloader.elf: $(OBJS) $(SRCTREE)/chainloader/chainloader.lds
-	$(TOOL_LD) -EB -m elf32btsmip -T $(SRCTREE)/chainloader/chainloader.lds \
+	$(TOOL_LD) $(ENDIAN) -m $(EMULATION) --defsym CHAINLOADER_BASE=$(CHAINLOADER_BASE) \
+		-T $(SRCTREE)/chainloader/chainloader.lds \
 		-Map $(BUILD)/chainloader.map -o $@ $(OBJS)
 
 $(OUTPUT): $(BUILD)/chainloader.elf $(HOST_TOOL)

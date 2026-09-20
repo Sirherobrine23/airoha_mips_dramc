@@ -6,6 +6,13 @@
 	.globl ddr_entry
 	.type ddr_entry, @function
 ddr_entry:
+#ifdef BOOTEXT_CHAINLOAD_ENTRY
+	/* Standalone bootext: hand DRAMC return directly to the SRAM chainloader. */
+	li $8, 0xbfb00280
+	li $9, BOOTEXT_CHAINLOAD_ENTRY
+	sw $9, 0($8)
+	sync
+#endif
 	/* boot2 jumps here without a C stack; use the top of FE SRAM. */
 	li $sp, 0xbfa3fff0
 	move $fp, $sp

@@ -61,12 +61,13 @@ TOOL_CC ?= $(CROSS_COMPILE)gcc
 TOOL_LD ?= $(CROSS_COMPILE)ld
 TOOL_OBJCOPY ?= $(CROSS_COMPILE)objcopy
 TOOL_CC_TARGET ?=
+DDR_CPPFLAGS ?=
 
 BUILD := $(OUT)/.dramc
 CFLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 	-fno-pic -fno-pie -ffreestanding -fno-builtin -Os -G0
-CFLAGS_C := $(CFLAGS) -fomit-frame-pointer -fno-stack-protector
-ASFLAGS := $(CFLAGS) -D__ASSEMBLY__
+CFLAGS_C := $(CFLAGS) -fomit-frame-pointer -fno-stack-protector $(DDR_CPPFLAGS)
+ASFLAGS := $(CFLAGS) -D__ASSEMBLY__ $(DDR_CPPFLAGS)
 
 .PHONY: all clean check-relocs
 all: $(OUTPUT)

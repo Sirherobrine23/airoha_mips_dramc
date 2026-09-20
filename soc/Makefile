@@ -39,11 +39,13 @@ DDR_IMAGE := $(OUT)/$(SOC)-dramc.bin
 CHAINLOAD_IMAGE := $(OUT)/$(SOC)-chainload.bin
 RECOVERY_IMAGE := $(OUT)/$(SOC)-recovery-chainloader.bin
 TCBOOT_IMAGE := $(OUT)/tcboot.bin
+BOOTEXT_IMAGE := $(OUT)/bootext.bin
 
 
-.PHONY: all dramc chainload recovery tcboot clean
+.PHONY: all dramc chainload recovery bootext tcboot clean
 
-all: dramc chainload $(if $(filter y,$(SOC_RECOVERY_CHAINLOADER)),recovery)
+all: dramc chainload $(if $(filter y,$(SOC_RECOVERY_CHAINLOADER)),recovery) \
+	$(if $(filter y,$(SOC_BOOTEXT)),bootext)
 
 $(HOST_TOOL): $(SRCTREE)/tools/econet-image.c
 	@mkdir -p "$(dir $@)"
@@ -81,6 +83,20 @@ ifeq ($(SOC_RECOVERY_CHAINLOADER),y)
 	@printf '  RECOVERY   %s\n' "$(RECOVERY_IMAGE)"
 else
 	@echo "error: $(SOC) has no BootROM recovery chainloader" >&2; exit 2
+endif
+
+bootext: $(HOST_TOOL)
+ifeq ($(SOC_BOOTEXT),y)
+	@mkdir -p "$(OUT)"
+	+@$(MAKE) --no-print-directory -f "$(SRCTREE)/bootext/Makefile" \
+		SRCTREE="$(SRCTREE)" OUT="$(OUT)" SOC="$(SOC)" \
+		CROSS_COMPILE="$(CROSS_COMPILE)" TOOL_CC="$(TOOL_CC)" \
+		TOOL_LD="$(TOOL_LD)" TOOL_OBJCOPY="$(TOOL_OBJCOPY)" TOOL_NM="$(TOOL_NM)" \
+		TOOL_CC_TARGET="$(TOOL_CC_TARGET)" HOST_TOOL="$(HOST_TOOL)" \
+		UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" OUTPUT="$(BOOTEXT_IMAGE)" all
+	@printf '  BOOTEXT    %s\n' "$(BOOTEXT_IMAGE)"
+else
+	@echo "error: $(SOC) has no standalone bootext target" >&2; exit 2
 endif
 
 tcboot: dramc $(HOST_TOOL)

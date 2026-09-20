@@ -45,10 +45,16 @@ out/<soc>/<soc>-chainload.bin
 out/en751221/en751221-recovery-chainloader.bin
 ```
 
-That recovery chainloader is not the same thing as the normal `chainload.bin`:
-`chainload.bin` runs after DRAM setup and reads the second-stage image from
-flash, while the recovery image is used by the EN751221 internal BootROM over
-XMODEM.
+`en7528` additionally builds a standalone BootROM/XMODEM boot extension:
+
+```text
+out/en7528/bootext.bin
+```
+
+The normal `chainload.bin` is the post-DRAM flash reader.  The EN751221
+recovery helper instead runs from DRAM after the vendor/BootROM DDR stage.  The
+EN7528 `bootext.bin` is different again: it is a single FE-SRAM image containing
+the EN7528 DRAMC stage followed by an SRAM-resident XMODEM chainloader.
 
 ### GNU cross toolchain
 
@@ -97,18 +103,51 @@ make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.itb
 ```
 
 The same applies to `en751627-tcboot` and `en7528-tcboot`, or to the generic
-form `make tcboot SOC=<soc> UBOOT_IMAGE=<file>`. Raw and FIT inputs are wrapped
-in the small ECNT container (magic `ECNT`, exact size, load/entry and CRC32);
-legacy `u-boot.img` is preserved as-is. For a normal FIT `firmware`/`loadables`
-image, its load/entry metadata is honored. U-Boot-generated RAM FITs commonly
-reference the U-Boot payload through `config->kernel`; in that compatibility
-mode the SoC target load address (for EN751221, `0x81000000`) is authoritative,
-because generated FIT metadata may describe an SPL convention rather than the
-linked U-Boot ELF address. This keeps the post-DRAM flash loader small while
-allowing all three input formats. The linked `u-boot` ELF is intentionally
-rejected.
+form `make tcboot SOC=<soc> UBOOT_IMAGE=<file>`.  The on-flash loader now
+autodetects the image magic directly:
+
+- raw `u-boot.bin` is wrapped by the host tool in the small ECNT descriptor
+  (magic `ECNT`, exact size, load/entry and CRC32);
+- legacy `u-boot.img` is preserved as a legacy uImage and its header/data CRCs
+  are checked by the flash loader;
+- FIT is preserved as FIT.  The flash loader parses the selected
+  `firmware`/`loadables` image directly.  U-Boot RAM FITs using
+  `config->kernel` remain supported as a compatibility layout.
+
+For a normal FIT `firmware`/`loadables` image, load/entry metadata is honored.
+For the compatibility `kernel` layout, the SoC target load address is
+authoritative because old SPL-oriented ITS files may carry unrelated
+load/entry metadata.  FIT hashes are not yet verified by the minimal flash
+loader; use legacy/ECNT when CRC verification at this stage is required.  The
+linked `u-boot` ELF is intentionally rejected.
 
 The result is `out/<soc>/tcboot.bin`. EN7580 TCBoot packaging remains WIP.
+
+## EN7528 `bootext.bin`
+
+The EN7528 BootROM recovery path needs the DRAM stage and the XMODEM
+chainloader in one FE-SRAM image.  Build it explicitly with:
+
+```sh
+make en7528-bootext
+```
+
+It is also built by the normal `make en7528` target.  The current layout is:
+
+```text
+0x9fa30000  EN7528 DRAMC / calibration entry
+            ... runtime DRAMC image/BSS ends before 0x9fa35000
+0x9fa35000  SRAM XMODEM chainloader
+            ... CRC self-check table
+```
+
+The composite file places the chainloader at file offset `0x5000`, pads the
+result to an XMODEM 128-byte boundary, and currently fits inside the reserved
+48 KiB FE-SRAM image window.  The bootext-specific DRAMC entry writes
+`0x9fa35000` to `SYS_BOOT_JUMP` (`0xbfb00280`); after calibration
+`start_spram(1)` follows that vendor handoff and enters the SRAM chainloader.
+The chainloader then receives U-Boot into DRAM and accepts raw, legacy, FIT or
+ECNT images.
 
 ## Host image tool
 
@@ -120,6 +159,7 @@ packing or tests.  Its subcommands replace the former `tools/*.py` helpers:
 econet-image chainloader  # CRC table + XMODEM padding
 econet-image flash        # build the 1 MiB TCBoot-compatible image
 econet-image tcboot       # finalize legacy TCBoot/Binman images
+econet-image bootext      # compose EN7528 DRAMC + SRAM chainloader
 econet-image selftest     # host-side regression tests
 ```
 
@@ -138,7 +178,8 @@ make test
 - `dramc/<soc>/` — DRAM initialization/calibration source or preserved payload.
 - `dramc/Makefile` — standalone DRAMC builder for all supported SoCs.
 - `flash/` — flash reader, TCBoot startup stages and Makefile for both `chainload` and `tcboot`.
-- `chainloader/` — EN751221 BootROM/XMODEM recovery chainloader and Makefile.
+- `chainloader/` — SRAM/DRAM XMODEM chainloader shared by EN751221 recovery and EN7528 bootext.
+- `bootext/` — EN7528 FE-SRAM composite-image builder.
 - `include/` — standalone early-boot headers; no U-Boot include tree required.
 - `soc/*.mk` — per-SoC toolchain/capability metadata.
 - `tools/` — only the native `econet-image.c` host image tool; the build path has no shell/Python helper scripts.

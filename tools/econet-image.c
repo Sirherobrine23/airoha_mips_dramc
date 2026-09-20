@@ -6,6 +6,8 @@
  *   econet-image chainloader --image IN [--output OUT] [--check-offset OFF]
  *   econet-image flash --soc SOC --stages FILE --symbols FILE \
  *	   --uboot FILE --load ADDR --output FILE [--minfo FILE]
+ *   econet-image bootext --dramc FILE --chainloader FILE --chain-offset OFF \
+ *	   --max-size SIZE --output FILE
  *   econet-image tcboot --soc SOC --image FILE [--output FILE] [--stock FILE]
  *   econet-image selftest
  */
@@ -341,6 +343,51 @@ static int finalize_chainloader(const char *input, const char *output,
 	free(out);
 	free_blob(&in);
 	return 0;
+}
+
+static int pack_bootext(const char *dramc_path, const char *chain_path,
+						uint32_t chain_offset, uint32_t max_size,
+						const char *output)
+{
+	struct blob dramc = read_file(dramc_path);
+	struct blob chain = read_file(chain_path);
+	size_t used, padded;
+	uint8_t *image;
+	int ret = 1;
+
+	if (!chain_offset || dramc.len > chain_offset) {
+		fprintf(stderr,
+				"econet-image: bootext DRAMC (0x%zx bytes) overlaps chainloader at 0x%x\n",
+				dramc.len, chain_offset);
+		goto out;
+	}
+	if (chain.len > UINT32_MAX - chain_offset) {
+		fprintf(stderr, "econet-image: bootext chainloader is too large\n");
+		goto out;
+	}
+	used = (size_t)chain_offset + chain.len;
+	padded = (used + XMODEM_BLOCK - 1u) & ~(size_t)(XMODEM_BLOCK - 1u);
+	if (padded > max_size) {
+		fprintf(stderr,
+				"econet-image: bootext needs 0x%zx bytes, SRAM limit is 0x%x\n",
+				padded, max_size);
+		goto out;
+	}
+
+	image = calloc(1, padded);
+	if (!image)
+		die("out of memory");
+	memcpy(image, dramc.data, dramc.len);
+	memcpy(image + chain_offset, chain.data, chain.len);
+	write_file(output, image, padded);
+	printf("  BOOTEXT  %s: dramc=0x%zx chain@0x%x=0x%zx size=0x%zx\n",
+		   output, dramc.len, chain_offset, chain.len, padded);
+	free(image);
+	ret = 0;
+out:
+	free_blob(&chain);
+	free_blob(&dramc);
+	return ret;
 }
 
 static bool read_symbols(const char *path, struct symbol **out_syms, size_t *out_count)
@@ -873,8 +920,8 @@ static struct blob make_ecnt(const uint8_t *payload, size_t payload_len,
 
 /*
  * Accept legacy uImage, FIT, an existing ECNT container, or a bare raw
- * u-boot.bin.  Legacy is kept intact for compatibility; FIT/raw are reduced
- * to a small ECNT container so the early flash loader stays tiny.
+ * u-boot.bin. Legacy and FIT are kept intact; bare raw is wrapped in the
+ * small ECNT container because it has no self-describing size/load metadata.
  */
 static int prepare_uboot(const struct blob *input, uint32_t default_load,
 						 struct blob *prepared, const char **format)
@@ -897,9 +944,16 @@ static int prepare_uboot(const struct blob *input, uint32_t default_load,
 	if (magic == FDT_MAGIC) {
 		if (extract_fit_payload(input, default_load, &fit_payload) < 0)
 			return -1;
-		*prepared = make_ecnt(fit_payload.data, fit_payload.len,
-							  fit_payload.load, fit_payload.entry);
-		*format = "fit->ecnt";
+		if (input->len > FLASH_LIMIT - FLASH_PAYLOAD) {
+			fprintf(stderr, "econet-image: FIT U-Boot image is too large for flash layout\n");
+			return -1;
+		}
+		prepared->data = malloc(input->len);
+		if (!prepared->data)
+			die("out of memory");
+		memcpy(prepared->data, input->data, input->len);
+		prepared->len = input->len;
+		*format = "fit";
 		return 0;
 	}
 	if (magic == ECONET_BOOT_MAGIC) {
@@ -1155,8 +1209,10 @@ static void usage(FILE *f)
 	fprintf(f,
 		"usage:\n"
 		"  econet-image chainloader --image FILE [--output FILE] [--check-offset OFF]\n"
-		"  econet-image flash --soc SOC --stages FILE --symbols FILE --uboot FILE\\\n\n"
-		"	  --load ADDR --output FILE [--minfo FILE]\n"
+		"  econet-image flash --soc SOC --stages FILE --symbols FILE --uboot FILE\\\n"
+		"\t  --load ADDR --output FILE [--minfo FILE]\n"
+		"  econet-image bootext --dramc FILE --chainloader FILE --chain-offset OFF\\\n"
+		"\t  --max-size SIZE --output FILE\n"
 		"  econet-image tcboot --soc SOC --image FILE [--output FILE] [--stock FILE]\n"
 		"  econet-image selftest\n");
 }
@@ -1234,6 +1290,38 @@ static int cmd_flash(int argc, char **argv)
 		return 2;
 	}
 	return pack_flash_image(soc, stages, symbols, uboot, load, minfo, output);
+}
+
+static int cmd_bootext(int argc, char **argv)
+{
+	const char *dramc = NULL, *chain = NULL, *output = NULL;
+	uint32_t chain_offset = 0, max_size = 0;
+	bool have_offset = false, have_max = false;
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "--dramc"))
+			dramc = next_arg(&i, argc, argv, "--dramc");
+		else if (!strcmp(argv[i], "--chainloader"))
+			chain = next_arg(&i, argc, argv, "--chainloader");
+		else if (!strcmp(argv[i], "--chain-offset")) {
+			chain_offset = parse_u32(next_arg(&i, argc, argv, "--chain-offset"));
+			have_offset = true;
+		} else if (!strcmp(argv[i], "--max-size")) {
+			max_size = parse_u32(next_arg(&i, argc, argv, "--max-size"));
+			have_max = true;
+		} else if (!strcmp(argv[i], "--output"))
+			output = next_arg(&i, argc, argv, "--output");
+		else {
+			usage(stderr);
+			return 2;
+		}
+	}
+	if (!dramc || !chain || !output || !have_offset || !have_max) {
+		usage(stderr);
+		return 2;
+	}
+	return pack_bootext(dramc, chain, chain_offset, max_size, output);
 }
 
 static int cmd_tcboot(int argc, char **argv)
@@ -1523,9 +1611,9 @@ static int selftest(void)
 		fit.data = fit_buf;
 		fit.len = make_test_fit(fit_buf, sizeof(fit_buf), f.data, f.data_len, false);
 		TEST(prepare_uboot(&fit, 0x81000000u, &prepared, &format) == 0 &&
-			 !strcmp(format, "fit->ecnt") && validate_ecnt(&prepared, true) == 0 &&
-			 get_be32(prepared.data + 12) == f.data_len,
-			 "FIT firmware extracted and wrapped as ECNT");
+			 !strcmp(format, "fit") && prepared.len == fit.len &&
+			 !memcmp(prepared.data, fit.data, fit.len),
+			 "FIT firmware preserved for flash loader");
 		free_blob(&prepared);
 	}
 
@@ -1536,11 +1624,9 @@ static int selftest(void)
 		fit.data = fit_buf;
 		fit.len = make_test_fit(fit_buf, sizeof(fit_buf), f.data, f.data_len, true);
 		TEST(prepare_uboot(&fit, 0x81000000u, &prepared, &format) == 0 &&
-			 !strcmp(format, "fit->ecnt") && validate_ecnt(&prepared, true) == 0 &&
-			 get_be32(prepared.data + 12) == f.data_len &&
-			 get_be32(prepared.data + 16) == 0x81000000u &&
-			 get_be32(prepared.data + 20) == 0x81000000u,
-			 "U-Boot kernel-style FIT uses target load address");
+			 !strcmp(format, "fit") && prepared.len == fit.len &&
+			 !memcmp(prepared.data, fit.data, fit.len),
+			 "U-Boot kernel-style FIT preserved for flash loader");
 		free_blob(&prepared);
 	}
 
@@ -1574,6 +1660,8 @@ int main(int argc, char **argv)
 		return cmd_chainloader(argc - 2, argv + 2);
 	if (!strcmp(argv[1], "flash"))
 		return cmd_flash(argc - 2, argv + 2);
+	if (!strcmp(argv[1], "bootext"))
+		return cmd_bootext(argc - 2, argv + 2);
 	if (!strcmp(argv[1], "tcboot"))
 		return cmd_tcboot(argc - 2, argv + 2);
 	if (!strcmp(argv[1], "selftest"))

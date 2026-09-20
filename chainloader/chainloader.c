@@ -219,6 +219,12 @@ static u32 get_be32(const u8 *p)
 	       ((u32)p[2] << 8) | (u32)p[3];
 }
 
+static u32 get_be32_volatile(const volatile u8 *p)
+{
+	return ((u32)p[0] << 24) | ((u32)p[1] << 16) |
+	       ((u32)p[2] << 8) | (u32)p[3];
+}
+
 static int string_eq(const char *a, const char *b)
 {
 	while (*a && *b && *a == *b) {
@@ -880,7 +886,7 @@ static u32 chunk_crc(const volatile u8 *img, u32 len, u32 i)
 static int self_check(void)
 {
 	const volatile u8 *img = (const volatile u8 *)&__image_start;
-	const volatile u32 *tab = (const volatile u32 *)&__chk_start;
+	const volatile u8 *tab = (const volatile u8 *)&__chk_start;
 	u32 len = (u32)&__chk_start - (u32)&__image_start;
 	u32 nchunks = (len + CHK_CHUNK - 1u) / CHK_CHUNK;
 	u32 i, n, off, bad = 0, first_bad = 0;
@@ -891,7 +897,7 @@ static int self_check(void)
 	put_hex32(nchunks);
 
 	for (i = 0; i < nchunks; i++) {
-		if (chunk_crc(img, len, i) != tab[i]) {
+		if (chunk_crc(img, len, i) != get_be32_volatile(tab + i * 4u)) {
 			if (!bad)
 				first_bad = i;
 			bad++;
@@ -907,7 +913,7 @@ static int self_check(void)
 
 	uart_puts("\nbad idx:");
 	for (i = 0; i < nchunks; i++)
-		if (chunk_crc(img, len, i) != tab[i]) {
+		if (chunk_crc(img, len, i) != get_be32_volatile(tab + i * 4u)) {
 			uart_puts(" 0x");
 			put_hex32(i);
 		}
@@ -920,7 +926,7 @@ static int self_check(void)
 	uart_puts("\ngot=0x");
 	put_hex32(chunk_crc(img, len, first_bad));
 	uart_puts(" want=0x");
-	put_hex32(tab[first_bad]);
+	put_hex32(get_be32_volatile(tab + first_bad * 4u));
 	uart_puts("\ndump @0x");
 	put_hex32((u32)&__image_start + off);
 	uart_putc('\n');
@@ -1005,8 +1011,12 @@ void chainloader_main(void)
 	ticks_per_ms = DEFAULT_TICKS_PER_MS;
 	tx_chars = 0;
 	t0 = cp0_count();
-	uart_puts("\nEN751221 BootROM chainloader\n");
-	uart_puts("XMODEM 128/1k, CRC16 ou checksum -> 0x81000000\n");
+
+	uart_putc('\n');
+	uart_puts("Airoha MIPS chainloader\n");
+	uart_puts("Accepts FIT, u-boot, u-boot.bin and u-boot.img\n");
+	uart_puts("XMODEM 128/1k, CRC16 or checksum -> 0x81000000\n");
+
 	calibrate(t0, tx_chars);
 
 	uart_puts("ticks/ms=0x");

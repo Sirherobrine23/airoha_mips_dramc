@@ -2,7 +2,7 @@ OUTPUT_ARCH(mips)
 ENTRY(_start)
 SECTIONS
 {
-	. = 0x80009000;
+	. = CHAINLOADER_BASE;
 	__image_start = .;
 	.text : ALIGN(4) { KEEP(*(.text.start)) *(.text .text.*) }
 	.rodata : ALIGN(4) { *(.rodata .rodata.*) }

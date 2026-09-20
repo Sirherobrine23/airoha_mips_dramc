@@ -2,38 +2,9 @@
 /* A raw flash reader, not an LZMA decompressor or a second boot monitor. */
 #include "loader.h"
 
-static void serial_outc(char c)
-{
-	unsigned int timeout = 1000000;
-	while (!(REG(0xbfbf0014) & 0x20) && --timeout);
-	if (timeout)
-		REG(0xbfbf0000) = (unsigned char)c;
-}
-
-static void puts_uart(const char *s)
-{
-	while (*s) {
-		serial_outc(*s);
-		s++;
-	}
-}
-
-void puts_uart_hex(unsigned int value)
-{
-	int shift;
-
-	serial_outc('0');
-	serial_outc('x');
-	for (shift = 28; shift >= 0; shift -= 4) {
-		unsigned int digit = (value >> shift) & 0xf;
-
-		serial_outc(digit < 10 ? '0' + digit : 'a' + digit - 10);
-	}
-}
-
 static void __attribute__((noreturn)) fail(const char *why)
 {
-	puts_uart(why);
+	uart_printf(why);
 	for (;;);
 }
 
@@ -291,12 +262,14 @@ static int parse_fit(const u8 *fit, u32 fit_len, u32 flash_limit,
 
 	if (!fit_init(&v, fit, fit_len))
 		return 0;
+
 	if (fit_find_prop(&v, "configurations", 0, "default", &p, &n)) {
 		if (!copy_prop_string(config, sizeof(config), p, n))
 			return 0;
 	} else if (!fit_first_child(&v, "configurations", config, sizeof(config))) {
 		return 0;
 	}
+
 	if (fit_find_prop(&v, "configurations", config, "firmware", &p, &n) ||
 	    fit_find_prop(&v, "configurations", config, "loadables", &p, &n)) {
 		if (!copy_prop_string(firmware, sizeof(firmware), p, n))
@@ -308,12 +281,15 @@ static int parse_fit(const u8 *fit, u32 fit_len, u32 flash_limit,
 	} else {
 		return 0;
 	}
+
 	if (fit_find_prop(&v, "images", firmware, "compression", &p, &n) &&
 	    !prop_string_eq(p, n, "none"))
 		return 0;
+
 	if (!kernel_ref && fit_find_prop(&v, "images", firmware, "arch", &p, &n) &&
 	    !prop_string_eq(p, n, "mips"))
 		return 0;
+
 	if (fit_find_prop(&v, "images", firmware, "type", &p, &n) &&
 	    !prop_string_eq(p, n, "firmware") &&
 	    !prop_string_eq(p, n, "standalone") &&
@@ -380,12 +356,13 @@ void __attribute__((noreturn)) loader_main(void)
 	int check_crc = 1;
 	const char *kind;
 
-	puts_uart("Econet flash loader\r\n");
+	uart_printf("Econet flash loader\n");
 	if (econet_sfc_init() || econet_sfc_read(UBOOT_OFFSET, hdr, sizeof(hdr)))
 		fail("flash header read failed\r\n");
 
 	magic = be32(hdr);
-	if (magic == IH_MAGIC) {
+	switch (magic) {
+	case IH_MAGIC: {
 		hcrc = be32(hdr + 4);
 		hdr[4] = hdr[5] = hdr[6] = hdr[7] = 0;
 		if (crc32(hdr, sizeof(hdr)) != hcrc)
@@ -403,7 +380,9 @@ void __attribute__((noreturn)) loader_main(void)
 		    load < 0x81000000U || load > 0x82000000U - size ||
 		    hdr[29] != 5 || hdr[30] != 5 || hdr[31] != 0)
 			fail("unsupported uImage size/address/type\r\n");
-	} else if (magic == FDT_MAGIC) {
+		}
+		break;
+	case FDT_MAGIC: {
 		const u8 *fit;
 
 		fit_size = be32(hdr + 4);
@@ -419,7 +398,9 @@ void __attribute__((noreturn)) loader_main(void)
 		dcrc = 0;
 		check_crc = 0;
 		kind = "FIT";
-	} else if (magic == ECONET_BOOT_MAGIC) {
+		}
+		break;
+	case ECONET_BOOT_MAGIC: {
 		u8 check[ECONET_BOOT_HEADER_SIZE];
 		u32 i;
 
@@ -446,17 +427,14 @@ void __attribute__((noreturn)) loader_main(void)
 		    size > 0x82000000U - load ||
 		    entry < load || entry >= load + size)
 			fail("unsupported ECNT size/address\r\n");
-	} else {
+		}
+		break;
+	default:
 		fail("unknown U-Boot image format\r\n");
+		break;
 	}
 
-	puts_uart("Loading U-Boot (");
-	puts_uart(kind);
-	puts_uart("), load=");
-	puts_uart_hex(load);
-	puts_uart(", entry=");
-	puts_uart_hex(entry);
-	puts_uart("\r\n");
+	uart_printf("Loading U-Boot (%s), load=0x%x, entry=0x%x\n", kind, load, entry);
 
 	prepare_destination(load, size);
 	if (econet_sfc_read(UBOOT_OFFSET + payload_off,
@@ -471,7 +449,7 @@ void __attribute__((noreturn)) loader_main(void)
 		__asm__ volatile("cache 0x10, 0(%0)" : : "r"(p) : "memory");
 	__asm__ volatile("sync; ehb" : : : "memory");
 
-	puts_uart("Starting U-Boot\r\n");
+	uart_printf("Starting U-Boot\n");
 	((void (*)(u32, u32, u32, u32))(uintptr_t)entry)(0, 0, 0, 0);
 	fail("U-Boot returned\r\n");
 }

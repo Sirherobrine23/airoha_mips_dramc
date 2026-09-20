@@ -37,7 +37,7 @@ OUTPUT ?= $(OUT)/$(SOC)-recovery-chainloader.bin
 CFLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls -fno-pic \
 	-fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
 	$(SOC_CPPFLAGS)
-OBJS := $(BUILD)/start.o $(BUILD)/chainloader.o $(BUILD)/flash-write.o $(BUILD)/early_sfc.o
+OBJS := $(BUILD)/start.o $(BUILD)/uart.o $(BUILD)/chainloader.o $(BUILD)/flash-write.o $(BUILD)/early_sfc.o
 
 .PHONY: all clean
 all: $(OUTPUT)
@@ -48,6 +48,10 @@ $(BUILD):
 $(BUILD)/start.o: $(SRCTREE)/chainloader/start.S | $(BUILD)
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include -c $< -o $@
 
+$(BUILD)/uart.o: $(SRCTREE)/chainloader/uart.c $(SRCTREE)/chainloader/chainloader.h $(SRCTREE)/include/uart.h | $(BUILD)
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include \
+		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
+
 $(BUILD)/chainloader.o: $(SRCTREE)/chainloader/chainloader.c $(SRCTREE)/chainloader/chainloader.h | $(BUILD)
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include \
 		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
@@ -57,7 +61,7 @@ $(BUILD)/flash-write.o: $(SRCTREE)/chainloader/flash-write.c $(SRCTREE)/chainloa
 		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
 
 $(BUILD)/early_sfc.o: $(SRCTREE)/flash/early_sfc.c $(SRCTREE)/flash/loader.h | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) $(SFC_CPPFLAGS) -I$(SRCTREE)/flash \
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) $(SFC_CPPFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/flash \
 		-c $< -o $@
 
 $(BUILD)/chainloader.elf: $(OBJS) $(SRCTREE)/chainloader/chainloader.lds

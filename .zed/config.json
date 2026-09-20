@@ -1,0 +1,120 @@
+{
+  "tab_size": 2,
+  "languages": {
+    "GitHub Actions": {
+      "show_edit_predictions": true,
+    },
+    "Rust": {
+      "show_edit_predictions": true,
+    },
+    "Shell Script": {
+      "show_edit_predictions": true,
+    },
+    "YAML": {
+      "show_edit_predictions": true,
+    },
+    "C++": {
+      "show_edit_predictions": false,
+      "tab_size": 4,
+      "formatter": "language_server",
+      "hard_tabs": true,
+    },
+    "C": {
+      "show_edit_predictions": false,
+      "tab_size": 4,
+      "formatter": "language_server",
+      "hard_tabs": true,
+    },
+    "Make": {
+      "show_edit_predictions": false,
+      "tab_size": 2,
+      "hard_tabs": true,
+    },
+    "JavaScript": {
+      "show_edit_predictions": false,
+      "format_on_save": "off",
+      "formatter": "auto",
+      "tab_size": 2,
+      "hard_tabs": true,
+    },
+    "TypeScript": {
+      "format_on_save": "off",
+      "formatter": "auto",
+      "tab_size": 2,
+      "hard_tabs": true,
+    },
+    "Go": {
+      "show_edit_predictions": true,
+      "tab_size": 2,
+      "hard_tabs": true,
+      "formatter": "language_server",
+    },
+    "Markdown": {
+      "show_edit_predictions": true,
+      "soft_wrap": "none",
+    },
+    "Plain Text": {
+      "soft_wrap": "none",
+    },
+    "Dockerfile": {
+      "enable_language_server": true,
+      "language_servers": ["docker"],
+    },
+    "devicetree": {
+      "show_edit_predictions": false,
+      "hard_tabs": true,
+      "tab_size": 2,
+    },
+  },
+  "file_types": {
+    "Dockerfile": ["Dockerfile", "dockerfile", "*.Dockerfile", "*.dockerfile"],
+    "Make": ["makefile", "Makefile", "*.mk"],
+    "C": ["*.c", "*.h"],
+    "C++": ["*.cc", "*.cpp", "*.hh"],
+    "Shell Script": ["*.sh", "01_leds", "02_network"],
+    "YAML": ["*.yaml", "*.yml", ".clangd"],
+    "Diff": ["*.diff", "*.patch", "*.rej", "*.mbx"],
+    "GitHub Actions": [
+      "**/.github/workflows/*.yml",
+      "**/.github/workflows/*.yaml",
+    ],
+  },
+  "lsp": {
+    "gopls": {
+      "initialization_options": {
+        "usePlaceholders": false,
+      },
+    },
+    "clangd": {
+      "binary": {
+        "path": "clangd",
+        "arguments": ["--header-insertion=never", "--enable-config"],
+      },
+    },
+    "gh-actions-language-server": {
+      "initialization_options": {
+        "sessionToken": "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",
+      },
+    },
+    "dts-language-server": {
+      "settings": {
+        "devicetree": {
+          "allowAdhocContexts": true,
+          "autoChangeContext": true,
+          "defaultBindingType": "DevicetreeOrg",
+          "defaultDeviceOrgBindingsMetaSchema": [],
+          "defaultDeviceOrgTreeBindings": [],
+          "defaultIncludePaths": [
+            "./include",
+            "./arch/arm/include",
+            "./arch/mips/include",
+            "../linux/include",
+            "../linux/arch/arm/include",
+            "../linux/arch/mips/include",
+          ],
+          "defaultShowFormattingErrorAsDiagnostics": false,
+        },
+      },
+    },
+  },
+}

@@ -55,8 +55,8 @@ COMMON_FLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 CHAIN_CFLAGS := $(COMMON_FLAGS) -Wall
 TCBOOT_CFLAGS := $(COMMON_FLAGS)
 
-CHAIN_OBJS := $(CHAIN_BUILD)/loader-start.o $(CHAIN_BUILD)/loader.o $(CHAIN_BUILD)/early_sfc.o
-TCBOOT_LOADER_OBJS := $(TCBOOT_BUILD)/loader-start.o $(TCBOOT_BUILD)/loader.o $(TCBOOT_BUILD)/flash.o
+CHAIN_OBJS := $(CHAIN_BUILD)/loader-start.o $(CHAIN_BUILD)/uart.o $(CHAIN_BUILD)/loader.o $(CHAIN_BUILD)/early_sfc.o
+TCBOOT_LOADER_OBJS := $(TCBOOT_BUILD)/loader-start.o $(TCBOOT_BUILD)/uart.o $(TCBOOT_BUILD)/loader.o $(TCBOOT_BUILD)/flash.o
 TCBOOT_STAGE_OBJS := $(TCBOOT_BUILD)/start.o $(TCBOOT_BUILD)/payloads.o
 
 .PHONY: all chainload tcboot clean FORCE
@@ -67,16 +67,19 @@ $(CHAIN_BUILD) $(TCBOOT_BUILD):
 	@mkdir -p $@
 
 $(CHAIN_BUILD)/loader-start.o: $(SRCTREE)/flash/loader-start.S | $(CHAIN_BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CHAIN_CFLAGS) -I$(SRCTREE)/flash -c $< -o $@
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(CHAIN_CFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/flash -c $< -o $@
+
+$(CHAIN_BUILD)/uart.o: $(SRCTREE)/flash/uart.c $(SRCTREE)/flash/loader.h $(SRCTREE)/include/uart.h | $(CHAIN_BUILD)
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(CHAIN_CFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/include -I$(SRCTREE)/flash -c $< -o $@
 
 $(CHAIN_BUILD)/loader.o: $(SRCTREE)/flash/loader.c $(SRCTREE)/flash/loader.h | $(CHAIN_BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CHAIN_CFLAGS) -I$(SRCTREE)/flash \
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(CHAIN_CFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/flash \
 		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -DUBOOT_OFFSET=$(UBOOT_OFFSET) \
 		-c $< -o $@
 
 $(CHAIN_BUILD)/early_sfc.o: $(SRCTREE)/flash/early_sfc.c | $(CHAIN_BUILD)
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(CHAIN_CFLAGS) $(STANDALONE_FLAGS) \
-		-I$(SRCTREE)/flash -c $< -o $@
+		-I$(SRCTREE)/include -I$(SRCTREE)/flash -c $< -o $@
 
 $(CHAIN_BUILD)/chainload.elf: $(CHAIN_OBJS) $(SRCTREE)/flash/loader.lds
 	$(TOOL_LD) $(ENDIAN) -m $(EMULATION) -T $(SRCTREE)/flash/loader.lds \
@@ -109,15 +112,18 @@ endif
 __tcboot: $(TCBOOT_OUTPUT)
 
 $(TCBOOT_BUILD)/loader-start.o: $(SRCTREE)/flash/loader-start.S | $(TCBOOT_BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(TCBOOT_CFLAGS) -I$(SRCTREE)/flash -c $< -o $@
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TCBOOT_CFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/flash -c $< -o $@
+
+$(TCBOOT_BUILD)/uart.o: $(SRCTREE)/flash/uart.c $(SRCTREE)/flash/loader.h $(SRCTREE)/include/uart.h | $(TCBOOT_BUILD)
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TCBOOT_CFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/include -I$(SRCTREE)/flash -c $< -o $@
 
 $(TCBOOT_BUILD)/loader.o: $(SRCTREE)/flash/loader.c $(SRCTREE)/flash/loader.h | $(TCBOOT_BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(TCBOOT_CFLAGS) -I$(SRCTREE)/flash \
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TCBOOT_CFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/flash \
 		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
 
 $(TCBOOT_BUILD)/flash.o: $(SRCTREE)/flash/early_sfc.c | $(TCBOOT_BUILD)
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TCBOOT_CFLAGS) $(STANDALONE_FLAGS) \
-		-I$(SRCTREE)/flash -c $< -o $@
+		-I$(SRCTREE)/include -I$(SRCTREE)/flash -c $< -o $@
 
 $(TCBOOT_BUILD)/loader.elf: $(TCBOOT_LOADER_OBJS) $(SRCTREE)/flash/loader.lds
 	$(TOOL_LD) $(ENDIAN) -m $(EMULATION) -T $(SRCTREE)/flash/loader.lds \

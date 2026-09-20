@@ -28,60 +28,10 @@ static void uart_rx_settle(void)
 	__asm__ volatile("sync" ::: "memory");
 }
 
-static void uart_putc(u8 c)
-{
-	while (!(mmio_read32(UART_BASE + UART_LSR) & UART_LSR_THRE))
-		;
-	mmio_write32(UART_BASE + UART_THR, c);
-	tx_chars++;
-}
-
-static void uart_puts(const char *s)
-{
-	while (*s) {
-		if (*s == '\n')
-			uart_putc('\r');
-		uart_putc((u8)*s++);
-	}
-}
-
-static void uart_put_uint(unsigned int value)
-{
-	char buf[10];
-	unsigned int i = 0;
-
-	if (value == 0) {
-		uart_putc('0');
-		return;
-	}
-
-	while (value) {
-		buf[i++] = '0' + (value % 10);
-		value /= 10;
-	}
-
-	while (i)
-		uart_putc(buf[--i]);
-}
-
 /*
- * Keep hexadecimal diagnostics independent of .rodata.  If the first-stage
- * XMODEM transfer damages the image, a lookup table stored in .rodata can be
- * corrupted too and turns the self-check report itself into binary garbage.
+ * Mutable state must stay in .bss: .data is covered by the self-check.
  */
-static void put_hex4(u8 v)
-{
-	v &= 0x0f;
-	uart_putc(v < 10 ? (u8)('0' + v) : (u8)('a' + v - 10));
-}
-
-static void put_hex32(u32 v)
-{
-	int shift;
-
-	for (shift = 28; shift >= 0; shift -= 4)
-		put_hex4((u8)(v >> shift));
-}
+static u32 ticks_per_ms;
 
 /*
  * Calibrate the CP0 Count against the UART shift rate: the banner has
@@ -127,11 +77,11 @@ static int uart_getc_to(u8 *out, u32 ms)
 	}
 
 	for (;;) {
-		u32 lsr = mmio_read32(UART_BASE + UART_LSR);
+		u32 lsr = mmio_read32(AIROHA_UART_BASE + AIROHA_UART_LSR);
 		u32 now;
 
-		rx_lsr_err |= lsr & UART_LSR_ERR;
-		if (lsr & UART_LSR_DR) {
+		rx_lsr_err |= lsr & AIROHA_UART_LSR_ERR;
+		if (lsr & AIROHA_UART_LSR_DR) {
 			u32 raw;
 
 			if (waited)
@@ -144,7 +94,7 @@ static int uart_getc_to(u8 *out, u32 ms)
 			 * here.
 			 */
 			uart_rx_settle();
-			raw = mmio_read32(UART_BASE + UART_RBR);
+			raw = mmio_read32(AIROHA_UART_BASE + AIROHA_UART_RBR);
 			*out = (u8)raw;
 			return 1;
 		}
@@ -898,12 +848,6 @@ resync:
 	}
 }
 
-static void put_hex8(u8 v)
-{
-	put_hex4(v >> 4);
-	put_hex4(v);
-}
-
 static u32 chunk_crc(const volatile u8 *img, u32 len, u32 i)
 {
 	u32 off = i * CHK_CHUNK;
@@ -926,10 +870,8 @@ static int self_check(void)
 	u32 nchunks = (len + CHK_CHUNK - 1u) / CHK_CHUNK;
 	u32 i, n, off, bad = 0, first_bad = 0;
 
-	uart_puts(" self len=0x");
-	put_hex32(len);
-	uart_puts(" blocks=0x");
-	put_hex32(nchunks);
+	uart_printf(" self len=0x%08x blocks=0x%08x",
+		    (unsigned int)len, (unsigned int)nchunks);
 
 	for (i = 0; i < nchunks; i++) {
 		if (chunk_crc(img, len, i) != get_be32_volatile(tab + i * 4u)) {
@@ -939,18 +881,16 @@ static int self_check(void)
 		}
 	}
 
-	uart_puts(" bad=0x");
-	put_hex32(bad);
+	uart_printf(" bad=0x%08x", (unsigned int)bad);
 	if (!bad) {
-		uart_puts(" OK\n");
+		uart_printf(" OK\n");
 		return 1;
 	}
 
-	uart_puts("\nbad idx:");
+	uart_printf("\nbad idx:");
 	for (i = 0; i < nchunks; i++)
 		if (chunk_crc(img, len, i) != get_be32_volatile(tab + i * 4u)) {
-			uart_puts(" 0x");
-			put_hex32(i);
+			uart_printf(" 0x%08x", (unsigned int)i);
 		}
 
 	off = first_bad * CHK_CHUNK;
@@ -958,19 +898,16 @@ static int self_check(void)
 	if (n > CHK_CHUNK)
 		n = CHK_CHUNK;
 
-	uart_puts("\ngot=0x");
-	put_hex32(chunk_crc(img, len, first_bad));
-	uart_puts(" want=0x");
-	put_hex32(get_be32_volatile(tab + first_bad * 4u));
-	uart_puts("\ndump @0x");
-	put_hex32((u32)&__image_start + off);
-	uart_putc('\n');
+	uart_printf("\ngot=0x%08x want=0x%08x\ndump @0x%08x\n",
+		    (unsigned int)chunk_crc(img, len, first_bad),
+		    (unsigned int)get_be32_volatile(tab + first_bad * 4u),
+		    (unsigned int)((u32)&__image_start + off));
 	for (i = 0; i < n; i++) {
-		put_hex8(img[off + i]);
+		uart_printf("%02x", (unsigned int)img[off + i]);
 		if ((i & 0x1fu) == 0x1fu)
 			uart_putc('\n');
 	}
-	uart_puts("corrupted image; refusing to continue\n");
+	uart_printf("corrupted image; refusing to continue\n");
 	return 0;
 }
 
@@ -984,45 +921,27 @@ static void halt(void) __attribute__((noreturn));
 
 static void report(void)
 {
-	uart_puts("\nblocks=0x");
-	put_hex32(stat_blocks);
-	uart_puts(" dup=0x");
-	put_hex32(stat_dups);
-	uart_puts(" tries=0x");
-	put_hex32(stat_tries);
-	uart_puts(" mode=");
-	uart_puts(stat_1k ? "1k/" : "128/");
-	uart_puts(stat_csum ? "csum" : "crc16");
-	uart_puts(" err=0x");
-	put_hex32(err_count);
-	uart_puts(" lsrerr=0x");
-	put_hex32(rx_lsr_err);
+	uart_printf("\nblocks=0x%08x dup=0x%08x tries=0x%08x mode=%s%s err=0x%08x lsrerr=0x%08x",
+		    (unsigned int)stat_blocks, (unsigned int)stat_dups,
+		    (unsigned int)stat_tries, stat_1k ? "1k/" : "128/",
+		    stat_csum ? "csum" : "crc16", (unsigned int)err_count,
+		    (unsigned int)rx_lsr_err);
 	if (err_count) {
-		uart_puts("\nfirst: kind=0x");
-		put_hex32(err_first_kind);
-		uart_puts(" blk=0x");
-		put_hex32(err_first_blk);
-		uart_puts(" exp=0x");
-		put_hex32(err_first_exp);
-		uart_puts(" at=0x");
-		put_hex32(err_first_len);
-		uart_puts(" got=0x");
-		put_hex32(err_first_got);
-		uart_puts(" want=0x");
-		put_hex32(err_first_want);
-		uart_puts("\ndata:");
+		uart_printf("\nfirst: kind=0x%08x blk=0x%08x exp=0x%08x at=0x%08x got=0x%08x want=0x%08x",
+			    (unsigned int)err_first_kind, (unsigned int)err_first_blk,
+			    (unsigned int)err_first_exp, (unsigned int)err_first_len,
+			    (unsigned int)err_first_got, (unsigned int)err_first_want);
+		uart_printf("\ndata:");
 		{
 			u32 i;
 
 			for (i = 0; i < sizeof(err_first_data); i++) {
-				uart_putc(' ');
-				put_hex8(err_first_data[i]);
+				uart_printf(" %02x", (unsigned int)err_first_data[i]);
 			}
 		}
-		uart_puts(" waits=0x");
-		put_hex32(rx_wait_n);
+		uart_printf(" waits=0x%08x", (unsigned int)rx_wait_n);
 	}
-	uart_puts("\n");
+	uart_printf("\n");
 }
 
 enum boot_action {
@@ -1037,10 +956,8 @@ static enum boot_action prompt_boot_action(void)
 
 	uart_purge(30);
 
-	uart_puts("Press x to chainload or b to flash tcboot.bin ");
-	uart_puts("[");
-	uart_put_uint(CHAINLOADER_MENU_TIMEOUT_SEC);
-	uart_puts("s, default: x]\n");
+	uart_printf("Press x to chainload or b to flash tcboot.bin [%us, default: x]\n",
+		    (unsigned int)CHAINLOADER_MENU_TIMEOUT_SEC);
 
 	while (sec++ < CHAINLOADER_MENU_TIMEOUT_SEC) {
 		if (!uart_getc_to(&ch, 1000u))
@@ -1049,12 +966,12 @@ static enum boot_action prompt_boot_action(void)
 		switch (ch) {
 		case 'X':
 		case 'x':
-			uart_puts("chainload selected\n");
+			uart_printf("chainload selected\n");
 			return BOOT_ACTION_CHAINLOAD;
 
 		case 'B':
 		case 'b':
-			uart_puts("flash tcboot.bin selected\n");
+			uart_printf("flash tcboot.bin selected\n");
 			return BOOT_ACTION_FLASH_TCBOOT;
 
 		default:
@@ -1062,7 +979,7 @@ static enum boot_action prompt_boot_action(void)
 		}
 	}
 
-	uart_puts("timeout -> chainload\n");
+	uart_printf("timeout -> chainload\n");
 	return BOOT_ACTION_CHAINLOAD;
 }
 
@@ -1071,26 +988,24 @@ static int receive_and_flash_tcboot(void)
 	u32 len, crc;
 	int ret;
 
-	uart_puts("Send tcboot.bin via XMODEM now (expected 0x00100000 bytes)\n");
+	uart_printf("Send tcboot.bin via XMODEM now (expected 0x00100000 bytes)\n");
 	xmodem_reset_state();
 	len = xmodem_receive();
 	if (!len) {
 		report();
-		uart_puts("XMODEM failed/cancelled\n");
+		uart_printf("XMODEM failed/cancelled\n");
 		return -1;
 	}
 
 	__asm__ volatile("sync" ::: "memory");
 	report();
-	uart_puts("received tcboot.bin size=0x");
-	put_hex32(len);
+	uart_printf("received tcboot.bin size=0x%08x", (unsigned int)len);
 	if (len < TCBOOT_FLASH_SIZE_MIN) {
-		uart_puts(" min=0x");
-		put_hex32(TCBOOT_FLASH_SIZE_MIN);
-		uart_puts("; refusing to flash\n");
+		uart_printf(" min=0x%08x; refusing to flash\n",
+			    (unsigned int)TCBOOT_FLASH_SIZE_MIN);
 		return -1;
 	}
-
+	
 	/*
 	 * The entire 1 MiB image is now resident in DRAM.  Only after a
 	 * complete XMODEM transfer, exact-size check and CRC calculation do we
@@ -1098,24 +1013,21 @@ static int receive_and_flash_tcboot(void)
 	 * streaming: retransmissions must never partially program tcboot.bin.
 	 */
 	crc = crc32_ieee((const volatile u8 *)(uintptr_t)UBOOT_LOAD_CACHED, len);
-	uart_puts("tcboot staged in RAM crc32=0x");
-	put_hex32(crc);
-	uart_putc('\n');
+	uart_printf("\ntcboot staged in RAM crc32=0x%08x\n", (unsigned int)crc);
 
-	uart_puts("erasing/writing/verifying tcboot.bin...\n");
+	uart_printf("erasing/writing/verifying tcboot.bin...\n");
 	ret = chainloader_flash_tcboot((const void *)(uintptr_t)UBOOT_LOAD_CACHED, len);
 	if (ret == CHAINLOADER_FLASH_UNSUPPORTED) {
-		uart_puts("flash write unsupported on this media/build; returning to menu\n");
+		uart_printf("flash write unsupported on this media/build; returning to menu\n");
 		return ret;
 	}
 	if (ret) {
-		uart_puts("flash failed status=0x");
-		put_hex32((u32)ret);
-		uart_puts("; returning to menu\n");
+		uart_printf("flash failed status=0x%08x; returning to menu\n",
+			    (unsigned int)(u32)ret);
 		return ret;
 	}
 
-	uart_puts("tcboot.bin flashed and verified; reset/power-cycle the board\n");
+	uart_printf("tcboot.bin flashed and verified; reset/power-cycle the board\n");
 	return 0;
 }
 
@@ -1135,24 +1047,23 @@ void chainloader_main(void)
 	watchdog_kick();
 
 	/* The BootROM may leave the UART IRQ enabled; this runs in polling mode. */
-	mmio_write32(UART_BASE + UART_IER, 0);
+	mmio_write32(AIROHA_UART_BASE + AIROHA_UART_IER, 0);
 
 	ticks_per_ms = DEFAULT_TICKS_PER_MS;
-	tx_chars = 0;
+	chainloader_uart_tx_reset();
 	t0 = cp0_count();
 
 	uart_putc('\n');
-	uart_puts("Airoha MIPS chainloader\n");
-	uart_puts("Accepts FIT, u-boot, u-boot.bin and u-boot.img\n");
-	uart_puts("XMODEM 128/1k, CRC16 or checksum -> 0x81000000\n");
+	uart_printf("Airoha MIPS chainloader\n");
+	uart_printf("Accepts FIT, u-boot, u-boot.bin and u-boot.img\n");
+	uart_printf("XMODEM 128/1k, CRC16 or checksum -> 0x81000000\n");
 
-	calibrate(t0, tx_chars);
+	calibrate(t0, chainloader_uart_tx_count());
 
-	uart_puts("ticks/ms=0x");
-	put_hex32(ticks_per_ms);
+	uart_printf("ticks/ms=0x%08x", (unsigned int)ticks_per_ms);
 
 	if (!self_check()) {
-		uart_puts("self-check failed; reset and resend chainloader\n");
+		uart_printf("self-check failed; reset and resend chainloader\n");
 		halt();
 	}
 
@@ -1165,59 +1076,47 @@ void chainloader_main(void)
 		break;
 	}
 
-	uart_puts("waiting for U-Boot\n");
+	uart_printf("waiting for U-Boot\n");
 	xmodem_reset_state();
 	len = xmodem_receive();
 	if (!len) {
 		report();
-		uart_puts("XMODEM failed/cancelled\n");
+		uart_printf("XMODEM failed/cancelled\n");
 		halt();
 	}
 
 	__asm__ volatile("sync" ::: "memory");
 
 	report();
-	uart_puts("received 0x");
-	put_hex32(len);
-	uart_puts(" bytes\nfirst words: ");
+	uart_printf("received 0x%08x bytes\nfirst words: ", (unsigned int)len);
 	for (i = 0; i < 4; i++) {
-		put_hex32(w[i]);
+		uart_printf("%08x", (unsigned int)w[i]);
 		if (i != 3)
 			uart_putc(' ');
 	}
-	uart_puts("\n");
+	uart_printf("\n");
 
 	image_crc = crc32_ieee((volatile u8 *)UBOOT_LOAD_CACHED, len);
-	uart_puts("xfer crc32=0x");
-	put_hex32(image_crc);
-	uart_puts("\n");
+	uart_printf("xfer crc32=0x%08x\n", (unsigned int)image_crc);
 
 	if (parse_boot_image((const u8 *)(uintptr_t)UBOOT_LOAD_CACHED, len, &image) < 0) {
-		uart_puts("invalid/unsupported U-Boot image\n");
+		uart_printf("invalid/unsupported U-Boot image\n");
 		halt();
 	}
 
-	uart_puts("image=");
-	uart_puts(image_type_name(image.type));
-	uart_puts(" size=0x");
-	put_hex32(image.size);
-	uart_puts(" load=0x");
-	put_hex32(image.load);
-	uart_puts(" entry=0x");
-	put_hex32(image.entry);
-	uart_puts("\n");
+	uart_printf("image=%s size=0x%08x load=0x%08x entry=0x%08x\n",
+		    image_type_name(image.type), (unsigned int)image.size,
+		    (unsigned int)image.load, (unsigned int)image.entry);
 
 	move_payload((u8 *)(uintptr_t)image.load, image.data, image.size);
 	w = (volatile u32 *)(uintptr_t)image.load;
 	if (w[0] == 0x00000000u || w[0] == 0xffffffffu) {
-		uart_puts("invalid first word; refusing jump\n");
+		uart_printf("invalid first word; refusing jump\n");
 		halt();
 	}
 
 	watchdog_kick();
-	uart_puts("jump 0x");
-	put_hex32(image.entry);
-	uart_puts("\n");
+	uart_printf("jump 0x%08x\n", (unsigned int)image.entry);
 	__asm__ volatile("sync" ::: "memory");
 	chainload_jump(image.entry);
 }

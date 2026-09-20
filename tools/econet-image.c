@@ -920,8 +920,10 @@ static struct blob make_ecnt(const uint8_t *payload, size_t payload_len,
 
 /*
  * Accept legacy uImage, FIT, an existing ECNT container, or a bare raw
- * u-boot.bin. Legacy and FIT are kept intact; bare raw is wrapped in the
- * small ECNT container because it has no self-describing size/load metadata.
+ * u-boot.bin. FIT and bare raw payloads are wrapped in the small ECNT
+ * container so the early flash loader never needs to parse a large FIT
+ * from serial flash. Recovery/XMODEM chainloading can still consume FIT
+ * directly.
  */
 static int prepare_uboot(const struct blob *input, uint32_t default_load,
 						 struct blob *prepared, const char **format)
@@ -944,16 +946,10 @@ static int prepare_uboot(const struct blob *input, uint32_t default_load,
 	if (magic == FDT_MAGIC) {
 		if (extract_fit_payload(input, default_load, &fit_payload) < 0)
 			return -1;
-		if (input->len > FLASH_LIMIT - FLASH_PAYLOAD) {
-			fprintf(stderr, "econet-image: FIT U-Boot image is too large for flash layout\n");
-			return -1;
-		}
-		prepared->data = malloc(input->len);
-		if (!prepared->data)
-			die("out of memory");
-		memcpy(prepared->data, input->data, input->len);
-		prepared->len = input->len;
-		*format = "fit";
+
+		*prepared = make_ecnt(fit_payload.data, fit_payload.len,
+					      fit_payload.load, fit_payload.entry);
+		*format = "fit->ecnt";
 		return 0;
 	}
 	if (magic == ECONET_BOOT_MAGIC) {
@@ -1611,9 +1607,10 @@ static int selftest(void)
 		fit.data = fit_buf;
 		fit.len = make_test_fit(fit_buf, sizeof(fit_buf), f.data, f.data_len, false);
 		TEST(prepare_uboot(&fit, 0x81000000u, &prepared, &format) == 0 &&
-			 !strcmp(format, "fit") && prepared.len == fit.len &&
-			 !memcmp(prepared.data, fit.data, fit.len),
-			 "FIT firmware preserved for flash loader");
+			 !strcmp(format, "fit->ecnt") && validate_ecnt(&prepared, true) == 0 &&
+			 get_be32(prepared.data + 12) == f.data_len &&
+			 !memcmp(prepared.data + ECONET_BOOT_HEADER_SIZE, f.data, f.data_len),
+			 "FIT firmware wrapped as ECNT for flash loader");
 		free_blob(&prepared);
 	}
 
@@ -1624,9 +1621,10 @@ static int selftest(void)
 		fit.data = fit_buf;
 		fit.len = make_test_fit(fit_buf, sizeof(fit_buf), f.data, f.data_len, true);
 		TEST(prepare_uboot(&fit, 0x81000000u, &prepared, &format) == 0 &&
-			 !strcmp(format, "fit") && prepared.len == fit.len &&
-			 !memcmp(prepared.data, fit.data, fit.len),
-			 "U-Boot kernel-style FIT preserved for flash loader");
+			 !strcmp(format, "fit->ecnt") && validate_ecnt(&prepared, true) == 0 &&
+			 get_be32(prepared.data + 12) == f.data_len &&
+			 !memcmp(prepared.data + ECONET_BOOT_HEADER_SIZE, f.data, f.data_len),
+			 "U-Boot kernel-style FIT wrapped as ECNT for flash loader");
 		free_blob(&prepared);
 	}
 

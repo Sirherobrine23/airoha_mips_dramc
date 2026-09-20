@@ -10,20 +10,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <uart.h>
 
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
-
-#define UART_BASE						0xbfbf0000u
-#define UART_RBR						0x00u
-#define UART_THR						0x00u
-#define UART_IER						0x04u
-#define UART_LSR						0x14u
-#define UART_LSR_DR						0x01u
-#define UART_LSR_THRE					0x20u
-#define UART_LSR_TEMT					0x40u
-#define UART_LSR_ERR					0x1eu  /* OE | PE | FE | BI */
 
 #ifndef UBOOT_LOAD_ADDR
 #define UBOOT_LOAD_ADDR						0x81000000u
@@ -94,10 +85,6 @@ struct econet_boot_header {
 extern u32 __image_start;
 extern u32 __chk_start;
 
-static u32 ticks_per_ms;
-static u32 tx_chars;
-
-
 static inline u32 mmio_read32(u32 addr)
 {
 	return *(volatile u32 *)(uintptr_t)addr;
@@ -118,22 +105,8 @@ static inline u32 cp0_count(void)
 }
 
 
-static inline void delay_ms(unsigned int ms)
-{
-	while (ms--) {
-		u32 start = cp0_count();
-
-		while ((u32)(cp0_count() - start) < ticks_per_ms)
-			;
-	}
-}
-
-static inline void sleep_sec(unsigned int sec)
-{
-	while (sec--)
-		delay_ms(1000);
-}
-
+void chainloader_uart_tx_reset(void);
+u32 chainloader_uart_tx_count(void);
 
 enum {
 	SOH = 0x01,

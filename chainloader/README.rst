@@ -11,8 +11,11 @@ XMODEM and jumps to the selected payload:
 
 * raw ``u-boot.bin`` (default load/entry ``0x81000000``);
 * legacy ``u-boot.img`` (header CRC + payload CRC are checked);
-* FIT/FDT (the default configuration's ``firmware`` or first ``loadables``
-  entry is selected; uncompressed MIPS firmware is supported).
+* FIT/FDT (the default configuration's ``firmware``, first ``loadables`` or
+  ``kernel`` entry is selected). Normal firmware/loadables FITs honor their
+  MIPS load/entry metadata. U-Boot-generated RAM FITs using ``kernel`` are
+  treated as a U-Boot container and use the EN751221 target load/entry
+  ``0x81000000`` even when their generic FIT metadata says otherwise.
 
 The ECNT raw container emitted by ``econet-image`` is accepted too.
 

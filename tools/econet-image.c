@@ -697,6 +697,7 @@ static int extract_fit_payload(const struct blob *fit, uint32_t default_load,
 	uint32_t n, data_len = 0, data_pos = 0, data_size = 0;
 	uint32_t load = default_load, entry = default_load;
 	char config[64], firmware[64];
+	bool kernel_ref = false;
 
 	if (!fit_init(&v, fit->data, fit->len)) {
 		fprintf(stderr, "econet-image: invalid FIT/FDT header\n");
@@ -719,8 +720,20 @@ static int extract_fit_payload(const struct blob *fit, uint32_t default_load,
 			fprintf(stderr, "econet-image: malformed FIT firmware reference\n");
 			return -1;
 		}
+	} else if (fit_find_prop(&v, "configurations", config, "kernel", &p, &n)) {
+		/*
+		 * U-Boot's generated u-boot.itb commonly exposes the RAM image as
+		 * config->kernel, even though the payload is u-boot.bin.  Treat this
+		 * as a container reference and keep the target's explicit --load
+		 * address authoritative.
+		 */
+		if (!fit_copy_string(firmware, sizeof(firmware), p, n)) {
+			fprintf(stderr, "econet-image: malformed FIT kernel reference\n");
+			return -1;
+		}
+		kernel_ref = true;
 	} else {
-		fprintf(stderr, "econet-image: FIT configuration has no firmware/loadables\n");
+		fprintf(stderr, "econet-image: FIT configuration has no firmware/loadables/kernel\n");
 		return -1;
 	}
 
@@ -729,26 +742,30 @@ static int extract_fit_payload(const struct blob *fit, uint32_t default_load,
 		fprintf(stderr, "econet-image: compressed FIT U-Boot payload is not supported\n");
 		return -1;
 	}
-	if (fit_find_prop(&v, "images", firmware, "arch", &p, &n) &&
+	if (!kernel_ref && fit_find_prop(&v, "images", firmware, "arch", &p, &n) &&
 		!fit_string_is(p, n, "mips")) {
 		fprintf(stderr, "econet-image: FIT firmware is not MIPS\n");
 		return -1;
 	}
 	if (fit_find_prop(&v, "images", firmware, "type", &p, &n) &&
-		!fit_string_is(p, n, "firmware") && !fit_string_is(p, n, "standalone")) {
-		fprintf(stderr, "econet-image: unsupported FIT firmware type\n");
+		!fit_string_is(p, n, "firmware") &&
+		!fit_string_is(p, n, "standalone") &&
+		!(kernel_ref && fit_string_is(p, n, "kernel"))) {
+		fprintf(stderr, "econet-image: unsupported FIT U-Boot image type\n");
 		return -1;
 	}
-	if (fit_find_prop(&v, "images", firmware, "load", &p, &n) &&
-		!fit_cell32(p, n, &load)) {
-		fprintf(stderr, "econet-image: unsupported FIT load address encoding\n");
-		return -1;
-	}
-	entry = load;
-	if (fit_find_prop(&v, "images", firmware, "entry", &p, &n) &&
-		!fit_cell32(p, n, &entry)) {
-		fprintf(stderr, "econet-image: unsupported FIT entry address encoding\n");
-		return -1;
+	if (!kernel_ref) {
+		if (fit_find_prop(&v, "images", firmware, "load", &p, &n) &&
+			!fit_cell32(p, n, &load)) {
+			fprintf(stderr, "econet-image: unsupported FIT load address encoding\n");
+			return -1;
+		}
+		entry = load;
+		if (fit_find_prop(&v, "images", firmware, "entry", &p, &n) &&
+			!fit_cell32(p, n, &entry)) {
+			fprintf(stderr, "econet-image: unsupported FIT entry address encoding\n");
+			return -1;
+		}
 	}
 
 	if (fit_find_prop(&v, "images", firmware, "data", &p, &n)) {
@@ -1347,10 +1364,11 @@ static void test_fit_prop(struct test_fit_builder *b, uint32_t nameoff,
 }
 
 static size_t make_test_fit(uint8_t *out, size_t out_len,
-							const uint8_t *payload, size_t payload_len)
+							const uint8_t *payload, size_t payload_len,
+							bool kernel_style)
 {
 	static const char strings[] =
-		"data\0type\0arch\0compression\0load\0entry\0default\0firmware\0";
+		"data\0type\0arch\0compression\0load\0entry\0default\0firmware\0kernel\0";
 	enum {
 		OFF_DATA = 0,
 		OFF_TYPE = 5,
@@ -1360,6 +1378,7 @@ static size_t make_test_fit(uint8_t *out, size_t out_len,
 		OFF_ENTRY = 32,
 		OFF_DEFAULT = 38,
 		OFF_FIRMWARE = 46,
+		OFF_KERNEL = 55,
 	};
 	struct test_fit_builder st = { { 0 }, 0 };
 	uint8_t cell[4];
@@ -1371,10 +1390,14 @@ static size_t make_test_fit(uint8_t *out, size_t out_len,
 	test_fit_begin(&st, "images");
 	test_fit_begin(&st, "uboot");
 	test_fit_prop(&st, OFF_DATA, payload, payload_len);
-	test_fit_prop(&st, OFF_TYPE, "firmware", sizeof("firmware"));
-	test_fit_prop(&st, OFF_ARCH, "mips", sizeof("mips"));
+	test_fit_prop(&st, OFF_TYPE,
+				  kernel_style ? "kernel" : "firmware",
+				  kernel_style ? sizeof("kernel") : sizeof("firmware"));
+	test_fit_prop(&st, OFF_ARCH,
+				  kernel_style ? "arm" : "mips",
+				  kernel_style ? sizeof("arm") : sizeof("mips"));
 	test_fit_prop(&st, OFF_COMPRESSION, "none", sizeof("none"));
-	put_be32(cell, 0x81000000u);
+	put_be32(cell, kernel_style ? 0x81e00000u : 0x81000000u);
 	test_fit_prop(&st, OFF_LOAD, cell, sizeof(cell));
 	test_fit_prop(&st, OFF_ENTRY, cell, sizeof(cell));
 	test_fit_end(&st);
@@ -1382,7 +1405,8 @@ static size_t make_test_fit(uint8_t *out, size_t out_len,
 	test_fit_begin(&st, "configurations");
 	test_fit_prop(&st, OFF_DEFAULT, "conf-1", sizeof("conf-1"));
 	test_fit_begin(&st, "conf-1");
-	test_fit_prop(&st, OFF_FIRMWARE, "uboot", sizeof("uboot"));
+	test_fit_prop(&st, kernel_style ? OFF_KERNEL : OFF_FIRMWARE,
+				  "uboot", sizeof("uboot"));
 	test_fit_end(&st);
 	test_fit_end(&st);
 	test_fit_end(&st);
@@ -1417,7 +1441,7 @@ static int selftest_crc(void)
 static int selftest(void)
 {
 	struct flash_fixture f;
-	int passed = 0, total = 10;
+	int passed = 0, total = 11;
 	uint32_t move_s, move_e, boot2_s, boot2_e, loader_s, loader_e, ddr_s, ddr_e;
 
 #define TEST(cond, name) do { \
@@ -1497,11 +1521,26 @@ static int selftest(void)
 		struct blob fit, prepared = { 0 };
 		const char *format = NULL;
 		fit.data = fit_buf;
-		fit.len = make_test_fit(fit_buf, sizeof(fit_buf), f.data, f.data_len);
+		fit.len = make_test_fit(fit_buf, sizeof(fit_buf), f.data, f.data_len, false);
 		TEST(prepare_uboot(&fit, 0x81000000u, &prepared, &format) == 0 &&
 			 !strcmp(format, "fit->ecnt") && validate_ecnt(&prepared, true) == 0 &&
 			 get_be32(prepared.data + 12) == f.data_len,
 			 "FIT firmware extracted and wrapped as ECNT");
+		free_blob(&prepared);
+	}
+
+	{
+		uint8_t fit_buf[4096];
+		struct blob fit, prepared = { 0 };
+		const char *format = NULL;
+		fit.data = fit_buf;
+		fit.len = make_test_fit(fit_buf, sizeof(fit_buf), f.data, f.data_len, true);
+		TEST(prepare_uboot(&fit, 0x81000000u, &prepared, &format) == 0 &&
+			 !strcmp(format, "fit->ecnt") && validate_ecnt(&prepared, true) == 0 &&
+			 get_be32(prepared.data + 12) == f.data_len &&
+			 get_be32(prepared.data + 16) == 0x81000000u &&
+			 get_be32(prepared.data + 20) == 0x81000000u,
+			 "U-Boot kernel-style FIT uses target load address");
 		free_blob(&prepared);
 	}
 

@@ -91,16 +91,22 @@ make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.bin
 # Legacy uImage. Kept on flash as a legacy image for compatibility.
 make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.img
 
-# FIT image. The selected MIPS firmware is extracted at build time.
+# FIT image. firmware/loadables are honored; U-Boot RAM FITs using
+# config->kernel are also supported.
 make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.itb
 ```
 
 The same applies to `en751627-tcboot` and `en7528-tcboot`, or to the generic
 form `make tcboot SOC=<soc> UBOOT_IMAGE=<file>`. Raw and FIT inputs are wrapped
 in the small ECNT container (magic `ECNT`, exact size, load/entry and CRC32);
-legacy `u-boot.img` is preserved as-is. This keeps the post-DRAM flash loader
-small while allowing all three input formats. The linked `u-boot` ELF is
-intentionally rejected.
+legacy `u-boot.img` is preserved as-is. For a normal FIT `firmware`/`loadables`
+image, its load/entry metadata is honored. U-Boot-generated RAM FITs commonly
+reference the U-Boot payload through `config->kernel`; in that compatibility
+mode the SoC target load address (for EN751221, `0x81000000`) is authoritative,
+because generated FIT metadata may describe an SPL convention rather than the
+linked U-Boot ELF address. This keeps the post-DRAM flash loader small while
+allowing all three input formats. The linked `u-boot` ELF is intentionally
+rejected.
 
 The result is `out/<soc>/tcboot.bin`. EN7580 TCBoot packaging remains WIP.
 

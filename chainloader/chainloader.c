@@ -537,6 +537,7 @@ static int parse_fit(const u8 *buf, u32 len, struct boot_image *img)
 	u32 n, data_len = 0, load = UBOOT_LOAD_ADDR, entry = UBOOT_LOAD_ADDR;
 	u32 data_pos = 0, data_size = 0;
 	char config[64], firmware[64];
+	int kernel_ref = 0;
 
 	if (len < 4 || get_be32(buf) != FDT_MAGIC)
 		return 0;
@@ -554,6 +555,11 @@ static int parse_fit(const u8 *buf, u32 len, struct boot_image *img)
 	    fdt_find_prop(&v, "configurations", config, "loadables", &p, &n)) {
 		if (!copy_prop_string(firmware, sizeof(firmware), p, n))
 			return -1;
+	} else if (fdt_find_prop(&v, "configurations", config, "kernel", &p, &n)) {
+		/* U-Boot-generated u-boot.itb uses config->kernel for u-boot.bin. */
+		if (!copy_prop_string(firmware, sizeof(firmware), p, n))
+			return -1;
+		kernel_ref = 1;
 	} else {
 		return -1;
 	}
@@ -561,21 +567,24 @@ static int parse_fit(const u8 *buf, u32 len, struct boot_image *img)
 	if (fdt_find_prop(&v, "images", firmware, "compression", &p, &n) &&
 	    !prop_string_eq(p, n, "none"))
 		return -1;
-	if (fdt_find_prop(&v, "images", firmware, "arch", &p, &n) &&
+	if (!kernel_ref && fdt_find_prop(&v, "images", firmware, "arch", &p, &n) &&
 	    !prop_string_eq(p, n, "mips"))
 		return -1;
 	if (fdt_find_prop(&v, "images", firmware, "type", &p, &n) &&
 	    !prop_string_eq(p, n, "firmware") &&
-	    !prop_string_eq(p, n, "standalone"))
+	    !prop_string_eq(p, n, "standalone") &&
+	    !(kernel_ref && prop_string_eq(p, n, "kernel")))
 		return -1;
 
-	if (fdt_find_prop(&v, "images", firmware, "load", &p, &n) &&
-	    !fdt_read_cell32(p, n, &load))
-		return -1;
-	entry = load;
-	if (fdt_find_prop(&v, "images", firmware, "entry", &p, &n) &&
-	    !fdt_read_cell32(p, n, &entry))
-		return -1;
+	if (!kernel_ref) {
+		if (fdt_find_prop(&v, "images", firmware, "load", &p, &n) &&
+		    !fdt_read_cell32(p, n, &load))
+			return -1;
+		entry = load;
+		if (fdt_find_prop(&v, "images", firmware, "entry", &p, &n) &&
+		    !fdt_read_cell32(p, n, &entry))
+			return -1;
+	}
 
 	if (fdt_find_prop(&v, "images", firmware, "data", &p, &n)) {
 		data = p;

@@ -17,7 +17,7 @@ HOST_TOOL := $(abspath $(O))/host/econet-image
 .PHONY: all clean test help tcboot $(SOCS) \
 	$(addsuffix -tcboot,$(TCBOOT_SOCS)) en751221-recovery hosttools
 
-all: clean $(SOCS)
+all: $(SOCS)
 
 hosttools: $(HOST_TOOL)
 
@@ -36,7 +36,7 @@ $(SOCS): $(HOST_TOOL)
 # `all`: the normal per-SoC build emits DRAMC + chainload and therefore does
 # not depend on a U-Boot build tree.
 tcboot: $(HOST_TOOL)
-	@test -n "$(SOC)" || { echo "usage: make tcboot SOC=<en751221|en751627|en7528> UBOOT_IMAGE=/path/to/u-boot.img" >&2; exit 2; }
+	@test -n "$(SOC)" || { echo "usage: make tcboot SOC=<en751221|en751627|en7528> UBOOT_IMAGE=/path/to/{u-boot.bin,u-boot.img,u-boot.itb}" >&2; exit 2; }
 	+@$(MAKE) --no-print-directory -f "$(CURDIR)/soc/Makefile" \
 		SRCTREE="$(CURDIR)" O="$(abspath $(O))" SOC="$(SOC)" \
 		HOST_TOOL="$(HOST_TOOL)" UBOOT_LOAD_ADDR="$(UBOOT_LOAD_ADDR)" \
@@ -75,7 +75,7 @@ help:
 		'  make LLVM=1 en7528' \
 		'' \
 		'Optional full tcboot.bin packaging:' \
-		'  make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.img' \
+		'  make en751221-tcboot UBOOT_IMAGE=/path/to/{u-boot.bin,u-boot.img,u-boot.itb}' \
 		'' \
 		'Host image tool:' \
 		'  out/host/econet-image' \

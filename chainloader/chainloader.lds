@@ -20,7 +20,7 @@ SECTIONS
 		 * real word at the end to force a loadable PROGBITS section.
 		 */
 		FILL(0x00000000)
-		. = . + (96 * 4 - 4);
+		. = . + (320 * 4 - 4);
 		LONG(0);
 		__chk_end = .;
 	}

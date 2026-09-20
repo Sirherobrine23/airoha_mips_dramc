@@ -33,7 +33,7 @@ $(BUILD):
 $(BUILD)/start.o: $(SRCTREE)/chainloader/start.S | $(BUILD)
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include -c $< -o $@
 
-$(BUILD)/chainloader.o: $(SRCTREE)/chainloader/chainloader.c | $(BUILD)
+$(BUILD)/chainloader.o: $(SRCTREE)/chainloader/chainloader.c $(SRCTREE)/chainloader/chainloader.h | $(BUILD)
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include \
 		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
 

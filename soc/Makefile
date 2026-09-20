@@ -85,7 +85,7 @@ endif
 
 tcboot: dramc $(HOST_TOOL)
 ifeq ($(SOC_TCBOOT),y)
-	@test -n "$(UBOOT_IMAGE)" || { echo "error: UBOOT_IMAGE=/path/to/u-boot.img is required" >&2; exit 2; }
+	@test -n "$(UBOOT_IMAGE)" || { echo "error: UBOOT_IMAGE=<u-boot.bin|u-boot.img|u-boot.itb> is required" >&2; exit 2; }
 	@test -f "$(UBOOT_IMAGE)" || { echo "error: U-Boot image not found: $(UBOOT_IMAGE)" >&2; exit 2; }
 	+@$(MAKE) --no-print-directory -f "$(SRCTREE)/flash/Makefile" \
 		SRCTREE="$(SRCTREE)" OUT="$(OUT)" SOC="$(SOC)" \

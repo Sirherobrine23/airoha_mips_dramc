@@ -6,8 +6,15 @@ What it is
 
 ``out/en751221/en751221-recovery-chainloader.bin`` is a small standalone loader for the EN751221
 internal BootROM recovery path. The BootROM downloads it to ``0x80009000``
-over XMODEM and jumps there; it then pulls an **unmodified** ``u-boot.bin``
-over XMODEM into the configured U-Boot load address (default ``0x81000000``) and jumps to it.
+over XMODEM and jumps there. It then accepts one of three U-Boot inputs over
+XMODEM and jumps to the selected payload:
+
+* raw ``u-boot.bin`` (default load/entry ``0x81000000``);
+* legacy ``u-boot.img`` (header CRC + payload CRC are checked);
+* FIT/FDT (the default configuration's ``firmware`` or first ``loadables``
+  entry is selected; uncompressed MIPS firmware is supported).
+
+The ECNT raw container emitted by ``econet-image`` is accepted too.
 
 Nothing in U-Boot proper changes. This replaces an earlier attempt at linking
 U-Boot itself at ``0x80009000`` so the BootROM could load it directly, which
@@ -23,12 +30,13 @@ chainload stage, and this recovery image.  To rebuild only the recovery image,
 use ``make en751221-recovery``.
 
 Hold the board in BootROM recovery, send the chainloader with the BootROM's
-own XMODEM, then send ``u-boot.bin`` to the chainloader::
+own XMODEM, then send ``u-boot.bin``, ``u-boot.img`` or a supported FIT to
+the chainloader::
 
   picocom -b 115200 --send-cmd "<path>/xsend.sh" /dev/ttyUSB0
 
-Send ``u-boot.bin`` **through a wrapper that flushes the serial input queue**
-before running ``sx``::
+Send the selected U-Boot image **through a wrapper that flushes the serial
+input queue** before running ``sx``::
 
   #!/bin/sh
   python3 -c 'import termios; termios.tcflush(0, termios.TCIFLUSH)'
@@ -82,17 +90,18 @@ Self-check
 ----------
 
 The BootROM validates its own XMODEM download with an 8-bit checksum, which
-lets corruption through.  A failed self-check is fatal: do not receive or jump
-to U-Boot from a chainloader image that is already known to be damaged. ``tools/econet-image chainloader`` stores a CRC32 of
-the image in its last loaded word and pads to 128 bytes; the chainloader
-recomputes it in DRAM and refuses to continue on a mismatch::
+lets corruption through. ``tools/econet-image chainloader`` appends a table of
+CRC32 values, one per 128-byte chunk of the checked image, and then pads to an
+XMODEM block. The chainloader recomputes every chunk before accepting another
+download and refuses to continue on any mismatch::
 
   EN751221 BootROM chainloader
   XMODEM 128/1k, CRC16 ou checksum -> 0x81000000
-  ticks/ms=0x00070627 self len=0x000021f4 crc=0x174efbda want=0x174efbda OK
+  ticks/ms=0x00070627 self len=0x00002c18 blocks=0x00000059 bad=0x00000000 OK
 
-Everything mutable lives in ``.bss``, which is outside the checked region and
-zeroed by ``start.S`` (the BootROM's XMODEM padding lands there).
+The table reserves 320 entries, enough for 40 KiB of checked image. Everything
+mutable lives in ``.bss``, outside the checked region, and is zeroed by
+``start.S``.
 
 There is no wall clock, so ``calibrate()`` derives CP0 Count ticks per
 millisecond from the time the banner took to shift out at 115200 8N1. Timeouts,

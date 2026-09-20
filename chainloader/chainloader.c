@@ -1,75 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
-typedef unsigned char u8;
-typedef unsigned short u16;
-typedef unsigned int u32;
+#include "chainloader.h"
 
-enum {
-	SOH = 0x01,
-	STX = 0x02,
-	EOT = 0x04,
-	ACK = 0x06,
-	NAK = 0x15,
-	CAN = 0x18,
-	CRC_REQ = 'C',
-};
-
-#define UART_BASE				0xbfbf0000u
-#define UART_RBR				0x00u
-#define UART_THR				0x00u
-#define UART_IER				0x04u
-#define UART_LSR				0x14u
-#define UART_LSR_DR				0x01u
-#define UART_LSR_THRE			0x20u
-#define UART_LSR_TEMT			0x40u
-#define UART_LSR_ERR			0x1eu	/* OE | PE | FE | BI */
-
-#ifndef UBOOT_LOAD_ADDR
-#define UBOOT_LOAD_ADDR			0x81000000U
-#endif
-
-/* Cached KSEG0: uncached 8-bit stores corrupt the word on this chip (see README). */
-#define UBOOT_LOAD_CACHED		(UBOOT_LOAD_ADDR)
-#define UBOOT_ENTRY_CACHED		(UBOOT_LOAD_ADDR)
-#define UBOOT_MAX_SIZE			0x00400000u
-
-#define CR_TIMER_CTL			0xbfbf0100u
-
-/* Assumed console baud rate for calibrating the timebase. */
-#define CONSOLE_CPS				11520u	/* 115200 8N1 = 11520 chars/s */
-#define DEFAULT_TICKS_PER_MS	250000u	/* fallback: CP0 Count at 250 MHz */
-
-/* Protocol tuning. */
-#define HANDSHAKE_TRIES			200
-#define HANDSHAKE_MS			3000
-#define BYTE_MS					1000
-#define NEXT_HDR_MS				5000
-#define CSUM_PROBE_MS			300
-#define PURGE_MS				300
-#define MAX_ERRORS				16
-
-extern u32 __image_start;
-extern u32 __chk_start;
-
-#define CHK_CHUNK				128u
-
-static inline u32 mmio_read32(u32 addr)
-{
-	return *(volatile u32 *)addr;
-}
-
-static inline void mmio_write32(u32 addr, u32 val)
-{
-	*(volatile u32 *)addr = val;
-}
-
-/* CP0 Count: fixed-rate timebase, independent of loop speed. */
-static inline u32 cp0_count(void)
-{
-	u32 v;
-
-	__asm__ volatile("mfc0 %0, $9" : "=r"(v));
-	return v;
-}
 
 static void watchdog_kick(void)
 {
@@ -279,6 +210,458 @@ static u32 crc32_ieee(const volatile u8 *buf, u32 len)
 	}
 
 	return ~crc;
+}
+
+
+static u32 get_be32(const u8 *p)
+{
+	return ((u32)p[0] << 24) | ((u32)p[1] << 16) |
+	       ((u32)p[2] << 8) | (u32)p[3];
+}
+
+static int string_eq(const char *a, const char *b)
+{
+	while (*a && *b && *a == *b) {
+		a++;
+		b++;
+	}
+	return *a == *b;
+}
+
+static int prop_string_eq(const u8 *p, u32 len, const char *s)
+{
+	u32 i = 0;
+
+	while (i < len && s[i]) {
+		if (p[i] != (u8)s[i])
+			return 0;
+		i++;
+	}
+	return i < len && p[i] == 0 && s[i] == 0;
+}
+
+static int copy_prop_string(char *dst, u32 dst_len, const u8 *src, u32 len)
+{
+	u32 i;
+
+	if (!dst_len)
+		return 0;
+	for (i = 0; i < len && i + 1 < dst_len; i++) {
+		dst[i] = (char)src[i];
+		if (!src[i])
+			return 1;
+	}
+	dst[0] = 0;
+	return 0;
+}
+
+static int range_ok(u32 off, u32 size, u32 total)
+{
+	return off <= total && size <= total - off;
+}
+
+struct boot_image {
+	const u8 *data;
+	u32 size;
+	u32 load;
+	u32 entry;
+	enum image_type type;
+};
+
+struct fdt_view {
+	const u8 *base;
+	u32 input_len;
+	u32 totalsize;
+	const u8 *structure;
+	const u8 *structure_end;
+	const u8 *strings;
+	const u8 *strings_end;
+};
+
+static int fdt_cstr_len(const u8 *p, const u8 *end, u32 *len)
+{
+	const u8 *q = p;
+
+	while (q < end && *q)
+		q++;
+	if (q >= end)
+		return 0;
+	*len = (u32)(q - p);
+	return 1;
+}
+
+static int fdt_init(struct fdt_view *v, const u8 *fit, u32 len)
+{
+	u32 off_struct, off_strings, size_struct, size_strings;
+
+	if (len < 40 || get_be32(fit) != FDT_MAGIC)
+		return 0;
+	v->totalsize = get_be32(fit + 4);
+	off_struct = get_be32(fit + 8);
+	off_strings = get_be32(fit + 12);
+	size_strings = get_be32(fit + 32);
+	size_struct = get_be32(fit + 36);
+	if (v->totalsize < 40 || v->totalsize > len ||
+	    !range_ok(off_struct, size_struct, v->totalsize) ||
+	    !range_ok(off_strings, size_strings, v->totalsize))
+		return 0;
+	v->base = fit;
+	v->input_len = len;
+	v->structure = fit + off_struct;
+	v->structure_end = v->structure + size_struct;
+	v->strings = fit + off_strings;
+	v->strings_end = v->strings + size_strings;
+	return 1;
+}
+
+static int fdt_name_eq(const char *node, const char *want)
+{
+	return node && want && string_eq(node, want);
+}
+
+/* Find a property in /level1 or /level1/level2. */
+static int fdt_find_prop(const struct fdt_view *v, const char *level1,
+			 const char *level2, const char *prop,
+			 const u8 **value, u32 *value_len)
+{
+	const u8 *p = v->structure;
+	const char *nodes[4] = { 0 };
+	int depth = -1;
+
+	while (p + 4 <= v->structure_end) {
+		u32 token = get_be32(p);
+		p += 4;
+
+		if (token == FDT_BEGIN_NODE) {
+			u32 nlen, skip;
+			if (!fdt_cstr_len(p, v->structure_end, &nlen))
+				return 0;
+			depth++;
+			if (depth < (int)(sizeof(nodes) / sizeof(nodes[0])))
+				nodes[depth] = (const char *)p;
+			skip = (nlen + 1u + 3u) & ~3u;
+			if ((u32)(v->structure_end - p) < skip)
+				return 0;
+			p += skip;
+		} else if (token == FDT_END_NODE) {
+			if (depth < 0)
+				return 0;
+			if (depth < (int)(sizeof(nodes) / sizeof(nodes[0])))
+				nodes[depth] = 0;
+			depth--;
+		} else if (token == FDT_PROP) {
+			u32 len, nameoff, skip, nlen;
+			const char *name;
+
+			if (p + 8 > v->structure_end)
+				return 0;
+			len = get_be32(p);
+			nameoff = get_be32(p + 4);
+			p += 8;
+			skip = (len + 3u) & ~3u;
+			if ((u32)(v->structure_end - p) < skip ||
+			    nameoff >= (u32)(v->strings_end - v->strings))
+				return 0;
+			name = (const char *)(v->strings + nameoff);
+			if (!fdt_cstr_len((const u8 *)name, v->strings_end, &nlen))
+				return 0;
+
+			if (string_eq(name, prop) && depth >= 1 &&
+			    fdt_name_eq(nodes[1], level1) &&
+			    ((!level2 && depth == 1) ||
+			     (level2 && depth == 2 && fdt_name_eq(nodes[2], level2)))) {
+				*value = p;
+				*value_len = len;
+				return 1;
+			}
+			p += skip;
+		} else if (token == FDT_NOP) {
+			continue;
+		} else if (token == FDT_END) {
+			return 0;
+		} else {
+			return 0;
+		}
+	}
+	return 0;
+}
+
+static int fdt_first_child(const struct fdt_view *v, const char *parent,
+			   char *name, u32 name_len)
+{
+	const u8 *p = v->structure;
+	const char *nodes[4] = { 0 };
+	int depth = -1;
+
+	while (p + 4 <= v->structure_end) {
+		u32 token = get_be32(p);
+		p += 4;
+		if (token == FDT_BEGIN_NODE) {
+			u32 nlen, skip, i;
+			if (!fdt_cstr_len(p, v->structure_end, &nlen))
+				return 0;
+			depth++;
+			if (depth < (int)(sizeof(nodes) / sizeof(nodes[0])))
+				nodes[depth] = (const char *)p;
+			if (depth == 2 && fdt_name_eq(nodes[1], parent)) {
+				if (nlen + 1 > name_len)
+					return 0;
+				for (i = 0; i <= nlen; i++)
+					name[i] = (char)p[i];
+				return 1;
+			}
+			skip = (nlen + 1u + 3u) & ~3u;
+			if ((u32)(v->structure_end - p) < skip)
+				return 0;
+			p += skip;
+		} else if (token == FDT_END_NODE) {
+			if (depth < 0)
+				return 0;
+			if (depth < (int)(sizeof(nodes) / sizeof(nodes[0])))
+				nodes[depth] = 0;
+			depth--;
+		} else if (token == FDT_PROP) {
+			u32 len, skip;
+			if (p + 8 > v->structure_end)
+				return 0;
+			len = get_be32(p);
+			p += 8;
+			skip = (len + 3u) & ~3u;
+			if ((u32)(v->structure_end - p) < skip)
+				return 0;
+			p += skip;
+		} else if (token == FDT_NOP) {
+			continue;
+		} else if (token == FDT_END) {
+			return 0;
+		} else {
+			return 0;
+		}
+	}
+	return 0;
+}
+
+static int fdt_read_cell32(const u8 *p, u32 len, u32 *value)
+{
+	if (len == 4) {
+		*value = get_be32(p);
+		return 1;
+	}
+	if (len == 8 && get_be32(p) == 0) {
+		*value = get_be32(p + 4);
+		return 1;
+	}
+	return 0;
+}
+
+static int validate_destination(const struct boot_image *img)
+{
+	if (!img->size || img->size > UBOOT_MAX_SIZE)
+		return 0;
+	if (img->load < UBOOT_LOAD_ADDR || img->load >= UBOOT_DRAM_LIMIT)
+		return 0;
+	if (img->size > UBOOT_DRAM_LIMIT - img->load)
+		return 0;
+	if (img->entry < img->load || img->entry >= img->load + img->size)
+		return 0;
+	return 1;
+}
+
+static int parse_legacy(const u8 *buf, u32 len, struct boot_image *img)
+{
+	u8 hdr[IH_HEADER_SIZE];
+	u32 size, load, entry, hcrc, dcrc, i;
+
+	if (len < IH_HEADER_SIZE || get_be32(buf) != IH_MAGIC)
+		return 0;
+	for (i = 0; i < IH_HEADER_SIZE; i++)
+		hdr[i] = buf[i];
+	hcrc = get_be32(hdr + 4);
+	hdr[4] = hdr[5] = hdr[6] = hdr[7] = 0;
+	if (crc32_ieee(hdr, IH_HEADER_SIZE) != hcrc)
+		return -1;
+	size = get_be32(buf + 12);
+	load = get_be32(buf + 16);
+	entry = get_be32(buf + 20);
+	dcrc = get_be32(buf + 24);
+	if (!size || size > len - IH_HEADER_SIZE ||
+	    buf[29] != IH_ARCH_MIPS || buf[30] != IH_TYPE_FIRMWARE ||
+	    buf[31] != IH_COMP_NONE)
+		return -1;
+	if (crc32_ieee(buf + IH_HEADER_SIZE, size) != dcrc)
+		return -1;
+	img->data = buf + IH_HEADER_SIZE;
+	img->size = size;
+	img->load = load;
+	img->entry = entry;
+	img->type = TYPE_LEGACY;
+	return validate_destination(img) ? 1 : -1;
+}
+
+static int parse_ecnt(const u8 *buf, u32 len, struct boot_image *img)
+{
+	u8 hdr[ECONET_BOOT_HEADER_SIZE];
+	u32 version, off, size, load, entry, dcrc, hcrc, i;
+
+	if (len < ECONET_BOOT_HEADER_SIZE || get_be32(buf) != ECONET_BOOT_MAGIC)
+		return 0;
+	for (i = 0; i < ECONET_BOOT_HEADER_SIZE; i++)
+		hdr[i] = buf[i];
+	hcrc = get_be32(hdr + 28);
+	hdr[28] = hdr[29] = hdr[30] = hdr[31] = 0;
+	if (crc32_ieee(hdr, sizeof(hdr)) != hcrc)
+		return -1;
+	version = get_be32(buf + 4);
+	off = get_be32(buf + 8);
+	size = get_be32(buf + 12);
+	load = get_be32(buf + 16);
+	entry = get_be32(buf + 20);
+	dcrc = get_be32(buf + 24);
+	if (version != ECONET_BOOT_VERSION || off < ECONET_BOOT_HEADER_SIZE ||
+	    !range_ok(off, size, len))
+		return -1;
+	if (crc32_ieee(buf + off, size) != dcrc)
+		return -1;
+	img->data = buf + off;
+	img->size = size;
+	img->load = load;
+	img->entry = entry;
+	img->type = TYPE_ECNT;
+	return validate_destination(img) ? 1 : -1;
+}
+
+static int parse_fit(const u8 *buf, u32 len, struct boot_image *img)
+{
+	struct fdt_view v;
+	const u8 *p, *data = 0;
+	u32 n, data_len = 0, load = UBOOT_LOAD_ADDR, entry = UBOOT_LOAD_ADDR;
+	u32 data_pos = 0, data_size = 0;
+	char config[64], firmware[64];
+
+	if (len < 4 || get_be32(buf) != FDT_MAGIC)
+		return 0;
+	if (!fdt_init(&v, buf, len))
+		return -1;
+
+	if (fdt_find_prop(&v, "configurations", 0, "default", &p, &n)) {
+		if (!copy_prop_string(config, sizeof(config), p, n))
+			return -1;
+	} else if (!fdt_first_child(&v, "configurations", config, sizeof(config))) {
+		return -1;
+	}
+
+	if (fdt_find_prop(&v, "configurations", config, "firmware", &p, &n) ||
+	    fdt_find_prop(&v, "configurations", config, "loadables", &p, &n)) {
+		if (!copy_prop_string(firmware, sizeof(firmware), p, n))
+			return -1;
+	} else {
+		return -1;
+	}
+
+	if (fdt_find_prop(&v, "images", firmware, "compression", &p, &n) &&
+	    !prop_string_eq(p, n, "none"))
+		return -1;
+	if (fdt_find_prop(&v, "images", firmware, "arch", &p, &n) &&
+	    !prop_string_eq(p, n, "mips"))
+		return -1;
+	if (fdt_find_prop(&v, "images", firmware, "type", &p, &n) &&
+	    !prop_string_eq(p, n, "firmware") &&
+	    !prop_string_eq(p, n, "standalone"))
+		return -1;
+
+	if (fdt_find_prop(&v, "images", firmware, "load", &p, &n) &&
+	    !fdt_read_cell32(p, n, &load))
+		return -1;
+	entry = load;
+	if (fdt_find_prop(&v, "images", firmware, "entry", &p, &n) &&
+	    !fdt_read_cell32(p, n, &entry))
+		return -1;
+
+	if (fdt_find_prop(&v, "images", firmware, "data", &p, &n)) {
+		data = p;
+		data_len = n;
+	} else {
+		if (!fdt_find_prop(&v, "images", firmware, "data-size", &p, &n) ||
+		    !fdt_read_cell32(p, n, &data_size))
+			return -1;
+		if (fdt_find_prop(&v, "images", firmware, "data-position", &p, &n)) {
+			if (!fdt_read_cell32(p, n, &data_pos))
+				return -1;
+		} else if (fdt_find_prop(&v, "images", firmware, "data-offset", &p, &n)) {
+			u32 rel;
+			if (!fdt_read_cell32(p, n, &rel) || rel > len - v.totalsize)
+				return -1;
+			data_pos = v.totalsize + rel;
+		} else {
+			return -1;
+		}
+		if (!range_ok(data_pos, data_size, len))
+			return -1;
+		data = buf + data_pos;
+		data_len = data_size;
+	}
+
+	img->data = data;
+	img->size = data_len;
+	img->load = load;
+	img->entry = entry;
+	img->type = TYPE_FIT;
+	return validate_destination(img) ? 1 : -1;
+}
+
+static int parse_boot_image(const u8 *buf, u32 len, struct boot_image *img)
+{
+	int ret;
+	u32 magic = len >= 4 ? get_be32(buf) : 0;
+
+	ret = parse_legacy(buf, len, img);
+	if (ret)
+		return ret;
+	ret = parse_fit(buf, len, img);
+	if (ret)
+		return ret;
+	ret = parse_ecnt(buf, len, img);
+	if (ret)
+		return ret;
+	if (magic == 0x7f454c46u) /* ELF: use u-boot.bin, not the linked ELF. */
+		return -1;
+
+	img->data = buf;
+	img->size = len;
+	img->load = UBOOT_LOAD_ADDR;
+	img->entry = UBOOT_ENTRY_CACHED;
+	img->type = TYPE_RAW;
+	return validate_destination(img) ? 1 : -1;
+}
+
+static const char *image_type_name(enum image_type type)
+{
+	switch (type) {
+	case TYPE_LEGACY:
+		return "legacy";
+	case TYPE_FIT:
+		return "fit";
+	case TYPE_ECNT:
+		return "ecnt/raw";
+	default:
+		return "raw";
+	}
+}
+
+static void move_payload(u8 *dst, const u8 *src, u32 len)
+{
+	u32 i;
+
+	if (dst == src || !len)
+		return;
+	if ((uintptr_t)dst < (uintptr_t)src) {
+		for (i = 0; i < len; i++)
+			dst[i] = src[i];
+	} else {
+		for (i = len; i; i--)
+			dst[i - 1] = src[i - 1];
+	}
+	__asm__ volatile("sync" ::: "memory");
 }
 
 /* Deferred diagnostics: nothing can be printed while the link is live. */
@@ -600,6 +983,7 @@ static void halt(void)
 
 void chainloader_main(void)
 {
+	struct boot_image image;
 	u32 len, image_crc, t0;
 	volatile u32 *w = (volatile u32 *)UBOOT_LOAD_CACHED;
 	u32 i;
@@ -647,17 +1031,36 @@ void chainloader_main(void)
 	uart_putc('\n');
 
 	image_crc = crc32_ieee((volatile u8 *)UBOOT_LOAD_CACHED, len);
-	uart_puts("crc32: ");
+	uart_puts("xfer crc32=0x");
 	put_hex32(image_crc);
 	uart_putc('\n');
 
+	if (parse_boot_image((const u8 *)(uintptr_t)UBOOT_LOAD_CACHED, len, &image) < 0) {
+		uart_puts("invalid/unsupported U-Boot image\n");
+		halt();
+	}
+
+	uart_puts("image=");
+	uart_puts(image_type_name(image.type));
+	uart_puts(" size=0x");
+	put_hex32(image.size);
+	uart_puts(" load=0x");
+	put_hex32(image.load);
+	uart_puts(" entry=0x");
+	put_hex32(image.entry);
+	uart_putc('\n');
+
+	move_payload((u8 *)(uintptr_t)image.load, image.data, image.size);
+	w = (volatile u32 *)(uintptr_t)image.load;
 	if (w[0] == 0x00000000u || w[0] == 0xffffffffu) {
 		uart_puts("invalid first word; refusing jump\n");
 		halt();
 	}
 
 	watchdog_kick();
-	uart_puts("jump 0x81000000\n");
+	uart_puts("jump 0x");
+	put_hex32(image.entry);
+	uart_putc('\n');
 	__asm__ volatile("sync" ::: "memory");
-	chainload_jump(UBOOT_ENTRY_CACHED);
+	chainload_jump(image.entry);
 }

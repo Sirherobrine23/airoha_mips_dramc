@@ -2,8 +2,9 @@
 
 Standalone early-boot sources for Airoha/EcoNet MIPS SoCs.  The repository
 contains the DRAM controller initialization/calibration stages and the small
-post-DRAM flash loader used to chainload U-Boot (or another compatible legacy
-uImage) without keeping those sources in the U-Boot tree.
+post-DRAM flash loader used to chainload U-Boot without keeping those sources in
+the U-Boot tree. The packaging path accepts raw `u-boot.bin`, legacy
+`u-boot.img`, and FIT images.
 
 ## Supported SoCs
 
@@ -81,21 +82,27 @@ with GNU binutils for now.  Its standalone chainload stage itself is LLVM-safe.
 
 The default `make <soc>` does **not** depend on a U-Boot source/build tree.
 When a complete flash image is needed, point the optional packaging target at
-an already-built uncompressed MIPS `u-boot.img`:
+one of the supported U-Boot formats:
 
 ```sh
+# Raw U-Boot binary. Preferred for a minimal second stage.
+make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.bin
+
+# Legacy uImage. Kept on flash as a legacy image for compatibility.
 make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.img
-make en751627-tcboot UBOOT_IMAGE=/path/to/u-boot.img
-make en7528-tcboot UBOOT_IMAGE=/path/to/u-boot.img
+
+# FIT image. The selected MIPS firmware is extracted at build time.
+make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.itb
 ```
 
-or equivalently:
+The same applies to `en751627-tcboot` and `en7528-tcboot`, or to the generic
+form `make tcboot SOC=<soc> UBOOT_IMAGE=<file>`. Raw and FIT inputs are wrapped
+in the small ECNT container (magic `ECNT`, exact size, load/entry and CRC32);
+legacy `u-boot.img` is preserved as-is. This keeps the post-DRAM flash loader
+small while allowing all three input formats. The linked `u-boot` ELF is
+intentionally rejected.
 
-```sh
-make tcboot SOC=en7528 UBOOT_IMAGE=/path/to/u-boot.img
-```
-
-The result is `out/<soc>/tcboot.bin`.  EN7580 TCBoot packaging remains WIP.
+The result is `out/<soc>/tcboot.bin`. EN7580 TCBoot packaging remains WIP.
 
 ## Host image tool
 

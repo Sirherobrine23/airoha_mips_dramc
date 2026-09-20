@@ -89,7 +89,7 @@ $(CHAIN_OUTPUT): $(CHAIN_BUILD)/chainload.elf
 
 ifeq ($(TCBOOT_SUPPORTED),y)
 tcboot: FORCE
-	@test -n "$(UBOOT_IMAGE)" || { echo "error: UBOOT_IMAGE=/path/to/u-boot.img is required" >&2; exit 2; }
+	@test -n "$(UBOOT_IMAGE)" || { echo "error: UBOOT_IMAGE=<u-boot.bin|u-boot.img|u-boot.itb> is required" >&2; exit 2; }
 	@test -f "$(UBOOT_IMAGE)" || { echo "error: U-Boot image not found: $(UBOOT_IMAGE)" >&2; exit 2; }
 	@test -f "$(DDR_IMAGE)" || { echo "error: DRAMC image not found: $(DDR_IMAGE)" >&2; exit 2; }
 	@test -x "$(HOST_TOOL)" || { echo "error: host image tool not found: $(HOST_TOOL)" >&2; exit 2; }

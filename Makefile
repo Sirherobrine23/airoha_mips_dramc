@@ -1,12 +1,22 @@
 # SPDX-License-Identifier: GPL-2.0+
 
-VERSION := 2026
-PATCHLEVEL := 09
-SUBLEVEL := 19
+VERSION = 2026
+PATCHLEVEL = 09
+SUBLEVEL =
+EXTRAVERSION =
+
+GIT_COMMIT = $(shell git rev-parse --verify HEAD 2>/dev/null)
+BUILD_DATE = $(shell date +"%d-%m-%Y %H:%M:%S %z")
+
+__PLAIN_VERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION) - $(BUILD_DATE) $(GIT_COMMIT)
+ifeq ($(PLAIN_VERSION),)
+PLAIN_VERSION = $(__PLAIN_VERSION)
+endif
+export PLAIN_VERSION
 
 SOCS := en751221 en751627 en7528
 TCBOOT_SOCS := en751221 en751627 en7528
-BOOTEXT_SOCS := en7528
+BOOTEXT_SOCS := en751627 en7528 en7580
 
 ifeq ($(EXPERIMENTAL_SOCS),1)
 SOCS += en7580
@@ -19,11 +29,11 @@ HOSTCC ?= cc
 HOSTCFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 HOST_TOOL := $(abspath $(O))/host/econet-image
 
-.PHONY: all clean test help tcboot bootext $(SOCS) \
+.PHONY: clean all clean test help tcboot bootext $(SOCS) \
 	$(addsuffix -tcboot,$(TCBOOT_SOCS)) $(addsuffix -bootext,$(BOOTEXT_SOCS)) \
 	en751221-recovery hosttools
 
-all: $(SOCS)
+all: clean $(SOCS)
 
 hosttools: $(HOST_TOOL)
 

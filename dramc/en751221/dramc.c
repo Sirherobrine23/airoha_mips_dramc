@@ -290,7 +290,7 @@ int dramc_calib(void)
 
 int main(void)
 {
-	prom_puts("EN751221 DRAMC v1.2.2 - u-boot " PLAIN_VERSION "\r\n\r\n");
+	prom_puts("EN751221 DRAMC v1.2.2 - " PLAIN_VERSION "\r\n\r\n");
 
 	int fail = 0, i;
 	if ((VPint(0xbfb0005c) & 0xffff) == 1) {
@@ -358,9 +358,9 @@ int main(void)
 	set_TRFC();
 
 	if ((DRAMC_READ_REG(0x618) & 0xff) == 0xaa)
-		prom_puts("ddr-1066\n");
+		prom_puts("DDR Speed: 1066Mhz\n");
 	else if ((DRAMC_READ_REG(0x618) & 0xff) == 0x8a)
-		prom_puts("ddr-800\n");
+		prom_puts("DDR Speed: 800Mhz\n");
 
 	DRAMC_WRITE_SET(1 << 31, DRAMC_DQSCAL0);
 	DRAMC_WRITE_SET(0x710, DRAMC_PERFCTL0);

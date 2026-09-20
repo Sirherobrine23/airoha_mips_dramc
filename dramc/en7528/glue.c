@@ -113,61 +113,10 @@ void spram_postprocess(void)
 {
 }
 
-/* Temporary cold-boot diagnostics: preserve each calibration return value. */
-static int trace_calibration(const char *name, int (*run)(void))
-{
-	int ret;
-
-	prom_puts("DDR enter: ");
-	prom_puts(name);
-	prom_puts("\n");
-	ret = run();
-	prom_puts("DDR leave: ");
-	prom_puts(name);
-	prom_puts(" ret=0x");
-	prom_print_hex((u32)ret, 8);
-	prom_puts("\n");
-	return ret;
-}
-
 extern int en7512_dramc_init(void);
-int trace_en7512_dramc_init(void)
-{
-	return trace_calibration("en7512_dramc_init", en7512_dramc_init);
-}
-
 extern int dramc_calib(void);
-int trace_dramc_calib(void)
-{
-	return trace_calibration("dramc_calib", dramc_calib);
-}
-
 extern int do_dqs_gw_calib_1(void);
-int trace_do_dqs_gw_calib_1(void)
-{
-	return trace_calibration("do_dqs_gw_calib_1", do_dqs_gw_calib_1);
-}
-
 extern int do_sw_rx_dq_dqs_calib(void);
-int trace_do_sw_rx_dq_dqs_calib(void)
-{
-	return trace_calibration("do_sw_rx_dq_dqs_calib", do_sw_rx_dq_dqs_calib);
-}
-
 extern int do_dle_calib(void);
-int trace_do_dle_calib(void)
-{
-	return trace_calibration("do_dle_calib", do_dle_calib);
-}
-
 extern int do_sw_tx_dq_dqs_calib(void);
-int trace_do_sw_tx_dq_dqs_calib(void)
-{
-	return trace_calibration("do_sw_tx_dq_dqs_calib", do_sw_tx_dq_dqs_calib);
-}
-
 extern int check_column_bank(void);
-int trace_check_column_bank(void)
-{
-	return trace_calibration("check_column_bank", check_column_bank);
-}

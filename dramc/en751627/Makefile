@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0+
+
+DRAMC_PREBUILT := $(DRAMC_DIR)/en751627_ddr.bin
+DRAMC_PREBUILT_SIZE := 53328

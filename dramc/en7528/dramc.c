@@ -1,4 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
+
+#include <version.h>
 #include "en7528_ddr.h"
 
 /*
@@ -19,13 +21,13 @@ extern int en7512_dramc_init(void);
 extern int opt_dle_value, opt_gw_coarse_value, opt_gw_fine_value;
 
 /* Standalone SRAM diagnostics supplied by support.c. */
-extern int trace_en7512_dramc_init(void);
-extern int trace_do_dqs_gw_calib_1(void);
-extern int trace_do_sw_rx_dq_dqs_calib(void);
-extern int trace_do_dle_calib(void);
-extern int trace_do_sw_tx_dq_dqs_calib(void);
-extern int trace_dramc_calib(void);
-extern int trace_check_column_bank(void);
+extern int en7512_dramc_init(void);
+extern int do_dqs_gw_calib_1(void);
+extern int do_sw_rx_dq_dqs_calib(void);
+extern int do_dle_calib(void);
+extern int do_sw_tx_dq_dqs_calib(void);
+extern int dramc_calib(void);
+extern int check_column_bank(void);
 
 int dram_speed;
 int PKG_type;
@@ -184,21 +186,21 @@ int dramc_calib(void)
 {
 	int ret;
 
-	ret = trace_do_dqs_gw_calib_1();
+	ret = do_dqs_gw_calib_1();
 	if (ret < 0)
 		return ret;
 
 	dle_factor_handler(8);
 
-	ret = trace_do_sw_rx_dq_dqs_calib();
+	ret = do_sw_rx_dq_dqs_calib();
 	if (ret < 0)
 		return ret;
 
-	ret = trace_do_dle_calib();
+	ret = do_dle_calib();
 	if (ret < 0)
 		return ret;
 
-	return trace_do_sw_tx_dq_dqs_calib();
+	return do_sw_tx_dq_dqs_calib();
 }
 
 static int detect_dram_size_mib(void)
@@ -249,6 +251,8 @@ int main(void)
 	int ret;
 	u32 v;
 
+	prom_puts("EN7528 DRAMC v1.8 - " PLAIN_VERSION "\r\n\r\n");
+
 	if (en7528_is_qfp()) {
 		PKG_type = QFP;
 		dram_type = DDR3;
@@ -259,11 +263,11 @@ int main(void)
 
 	delay_a_while(200);
 
-	ret = trace_en7512_dramc_init();
+	ret = en7512_dramc_init();
 	if (ret < 0)
 		return 0;
 
-	if (trace_dramc_calib() < 0) {
+	if (dramc_calib() < 0) {
 		prom_puts("%dqs_gw (coarse/fine): ");
 		prom_print_dec(opt_gw_coarse_value);
 		prom_puts("/");
@@ -282,7 +286,7 @@ int main(void)
 		calib_failed = 1;
 	}
 
-	trace_check_column_bank();
+	check_column_bank();
 
 	if (PKG_type == KGD && en7528_half_size()) {
 		DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300u) | 0x100u,
@@ -304,11 +308,13 @@ int main(void)
 
 	set_TRFC();
 
-	prom_puts("ddr-");
+	prom_puts("DDR Speed: ");
 	prom_print_dec(dram_speed);
-	prom_puts("\n\n7528DRAMC V1.8 (");
+	prom_puts("Mhz\n");
+
+	prom_puts("\r\ncalibration status: ");
 	prom_print_dec(calib_failed);
-	prom_puts(")\r\n");
+	prom_puts("\r\n");
 
 	DRAMC_WRITE_SET(0x710, DRAMC_PERFCTL0);
 	return 0;

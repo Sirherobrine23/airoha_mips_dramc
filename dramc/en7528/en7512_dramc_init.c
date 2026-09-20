@@ -64,8 +64,11 @@ int en7512_dramc_init(void)
 		prom_puts("BGA IC\n");
 
 	xtal = en7528_xtal_select();
-	prom_puts("Xtal:");
-	prom_print_dec(xtal);
+	prom_puts("Xtal: ");
+	if (xtal == 1)
+		prom_puts("25Mhz");
+	else
+		prom_puts("20Mhz");
 	prom_puts("\n");
 
 	/*

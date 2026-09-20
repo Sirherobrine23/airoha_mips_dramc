@@ -1,73 +1,114 @@
 # SPDX-License-Identifier: GPL-2.0+
-# Build the standalone DRAM initialization/calibration payload.
+# Generic standalone DRAM initialization/calibration build framework.
+#
+# SoC-wide properties live in soc/<soc>.mk.  Source lists and DRAMC-specific
+# quirks live in dramc/<soc>/Makefile.  Keep this file free of per-SoC source
+# lists so adding/changing a DRAMC implementation does not grow a central
+# ifeq ladder.
 
-SRCTREE ?= $(abspath $(CURDIR)/..)
+DRAMC_MAKEFILE := $(lastword $(MAKEFILE_LIST))
+SRCTREE ?= $(abspath $(dir $(DRAMC_MAKEFILE))/..)
 OUT ?= $(SRCTREE)/out/$(SOC)
 SOC ?=
 OUTPUT ?= $(OUT)/$(SOC)-dramc.bin
+LLVM ?= 0
 
-ifeq ($(SOC),en751221)
-ENDIAN := -EB
-EMULATION := elf32btsmip
-CROSS_DEFAULT := mips-linux-gnu-
-SOC_DIR := $(SRCTREE)/dramc/en751221
-DDR_LDS := $(SOC_DIR)/ddr.lds
-ORDERED_OBJS := \
-	$(OUT)/.dramc/head.o \
-	$(OUT)/.dramc/setup.o \
-	$(OUT)/.dramc/main.o \
-	$(OUT)/.dramc/init.o \
-	$(OUT)/.dramc/time.o \
-	$(OUT)/.dramc/string.o \
-	$(OUT)/.dramc/dramc.o \
-	$(OUT)/.dramc/dramc_dq_dqs_cal.o \
-	$(OUT)/.dramc/dramc_dle_cal.o \
-	$(OUT)/.dramc/dramc_dqs_gw_cal.o \
-	$(OUT)/.dramc/en7512_dramc_init.o \
-	$(OUT)/.dramc/spram.o
-else ifeq ($(SOC),en751627)
-ENDIAN := -EB
-EMULATION := elf32btsmip
-CROSS_DEFAULT := mips-linux-gnu-
-SOC_DIR := $(SRCTREE)/dramc/en751627
-PREBUILT := $(SOC_DIR)/en751627_ddr.bin
-PREBUILT_SIZE := 53328
-else ifeq ($(SOC),en7528)
-ENDIAN := -EL
-EMULATION := elf32ltsmip
-CROSS_DEFAULT := mipsel-linux-gnu-
-SOC_DIR := $(SRCTREE)/dramc/en7528
-READABLE_DIR := $(SOC_DIR)/readable
-DDR_LDS := $(SOC_DIR)/ddr.lds
-READABLE_C_SRCS := $(sort $(wildcard $(READABLE_DIR)/*.c))
-READABLE_OBJS := $(patsubst $(READABLE_DIR)/%.c,$(OUT)/.dramc/readable/%.o,$(READABLE_C_SRCS))
-ORDERED_OBJS := $(OUT)/.dramc/entry.o $(READABLE_OBJS) $(OUT)/.dramc/glue.o
-else ifeq ($(SOC),en7580)
-ENDIAN := -EL
-EMULATION := elf32ltsmip
-CROSS_DEFAULT := mipsel-linux-gnu-
-SOC_DIR := $(SRCTREE)/dramc/en7580
-RECON_DIR := $(SOC_DIR)/reconstructed
-DDR_LDS := $(SOC_DIR)/ddr.lds
-RECON_ASM_SRCS := $(sort $(wildcard $(RECON_DIR)/*.S))
-RECON_OBJS := $(patsubst $(RECON_DIR)/%.S,$(OUT)/.dramc/reconstructed/%.o,$(RECON_ASM_SRCS))
-ORDERED_OBJS := $(RECON_OBJS) $(OUT)/.dramc/entry.o $(OUT)/.dramc/glue.o
-else
+SOC_CONFIG := $(SRCTREE)/soc/$(SOC).mk
+ifeq ($(wildcard $(SOC_CONFIG)),)
 $(error unsupported SOC '$(SOC)')
 endif
+include $(SOC_CONFIG)
 
-CROSS_COMPILE ?= $(CROSS_DEFAULT)
+DRAMC_DIR := $(SRCTREE)/dramc/$(SOC)
+DRAMC_CONFIG := $(DRAMC_DIR)/Makefile
+ifeq ($(wildcard $(DRAMC_CONFIG)),)
+$(error missing DRAMC description '$(DRAMC_CONFIG)')
+endif
+include $(DRAMC_CONFIG)
+
+ifeq ($(SOC_ENDIAN),big)
+ENDIAN := -EB
+else ifeq ($(SOC_ENDIAN),little)
+ENDIAN := -EL
+else
+$(error unsupported SOC_ENDIAN '$(SOC_ENDIAN)' for $(SOC))
+endif
+
+CROSS_COMPILE ?= $(SOC_CROSS_COMPILE)
+ifeq ($(LLVM),1)
+TOOL_CC ?= clang
+TOOL_LD ?= ld.lld
+TOOL_OBJCOPY ?= llvm-objcopy
+TOOL_CC_TARGET ?= --target=$(SOC_TRIPLE)
+else
 TOOL_CC ?= $(CROSS_COMPILE)gcc
 TOOL_LD ?= $(CROSS_COMPILE)ld
 TOOL_OBJCOPY ?= $(CROSS_COMPILE)objcopy
 TOOL_CC_TARGET ?=
+endif
 DDR_CPPFLAGS ?=
 
+# Used only by the EN7580 reconstructed MIPS16 sources when LLVM=1.  A
+# mips64-linux-gnu gcc can emit both -EB and -EL O32 objects, so one fallback
+# toolchain is enough for the four SoCs supported by this repository.
+GNU_CROSS_COMPILE ?= $(if $(SOC_GNU_CROSS_COMPILE),$(SOC_GNU_CROSS_COMPILE),mips64-linux-gnu-)
+GNU_CC ?= $(GNU_CROSS_COMPILE)gcc
+
 BUILD := $(OUT)/.dramc
+DRAMC_TARGET_OBJS := $(addprefix $(BUILD)/,$(DRAMC_OBJS))
+DRAMC_GNU_ASM_TARGETS := $(addprefix $(BUILD)/,$(DRAMC_GNU_ASM_OBJS))
+
 CFLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 	-fno-pic -fno-pie -ffreestanding -fno-builtin -Os -G0
 CFLAGS_C := $(CFLAGS) -fomit-frame-pointer -fno-stack-protector $(DDR_CPPFLAGS)
 ASFLAGS := $(CFLAGS) -D__ASSEMBLY__ $(DDR_CPPFLAGS)
+CPPFLAGS := -I$(SRCTREE)/include $(DRAMC_INCLUDES)
+
+define filechk_version.h
+	(echo \#define PLAIN_VERSION \"$(PLAIN_VERSION)\"; \
+	echo \#define CC_VERSION_STRING \"$$(LC_ALL=C $(TOOL_CC) --version | head -n 1)\"; \
+	echo \#define LD_VERSION_STRING \"$$(LC_ALL=C $(TOOL_LD) --version | head -n 1)\"; )
+endef
+
+# Keep command recipes centralized, similar to OpenWrt's Build/* helpers.
+define Build/Compile/C
+	$(call filechk_version.h) > $(SRCTREE)/include/tmp_version.h
+	@mkdir -p $(dir $@)
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS_C) $(CPPFLAGS) -c $< -o $@
+endef
+
+define Build/Compile/ASM
+	@mkdir -p $(dir $@)
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(ASFLAGS) $(CPPFLAGS) \
+		-x assembler-with-cpp -c $< -o $@
+endef
+
+define Build/Compile/GNUASM
+	@mkdir -p $(dir $@)
+	$(GNU_CC) $(ASFLAGS) $(CPPFLAGS) -x assembler-with-cpp -c $< -o $@
+endef
+
+define Build/Link
+	$(TOOL_LD) $(ENDIAN) -m $(SOC_LD_EMULATION) -T $(DRAMC_LDS) \
+		-Map $(BUILD)/dramc.map -o $@ $(DRAMC_TARGET_OBJS)
+endef
+
+define Build/Objcopy
+	@mkdir -p $(dir $@)
+	$(TOOL_OBJCOPY) -O binary $< $@.tmp
+	@mv -f $@.tmp $@
+endef
+
+define Build/CopyPrebuilt
+	@size=$$(wc -c < "$<"); \
+		test "$$size" -eq "$(DRAMC_PREBUILT_SIZE)" || { \
+			echo "error: $(SOC) DRAMC payload has size $$size, expected $(DRAMC_PREBUILT_SIZE)" >&2; \
+			exit 1; \
+		}
+	@mkdir -p $(dir $@)
+	@cp "$<" "$@.tmp"
+	@mv -f "$@.tmp" "$@"
+endef
 
 .PHONY: all clean check-relocs
 all: $(OUTPUT)
@@ -75,73 +116,47 @@ all: $(OUTPUT)
 $(BUILD):
 	@mkdir -p $@
 
-$(BUILD)/readable $(BUILD)/reconstructed:
-	@mkdir -p $@
+ifdef DRAMC_PREBUILT
 
-ifeq ($(SOC),en751627)
-$(OUTPUT): $(PREBUILT)
-	@size=$$(wc -c < "$<"); \
-		test "$$size" -eq "$(PREBUILT_SIZE)" || { \
-			echo "error: EN751627 DDR payload has size $$size, expected $(PREBUILT_SIZE)" >&2; \
-			exit 1; \
-		}
-	@mkdir -p $(dir $@)
-	@cp "$<" "$@.tmp"
-	@mv -f "$@.tmp" "$@"
+$(OUTPUT): $(DRAMC_PREBUILT)
+	$(Build/CopyPrebuilt)
+
 else
 
-ifeq ($(SOC),en751221)
-$(BUILD)/%.o: $(SOC_DIR)/%.S | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(ASFLAGS) -I$(SRCTREE)/include -I$(SOC_DIR) \
-		-x assembler-with-cpp -c $< -o $@
+# Generic rules preserve subdirectories in object names, e.g.
+# readable/foo.c -> $(BUILD)/readable/foo.o.
+$(BUILD)/%.o: $(DRAMC_DIR)/%.c
+	$(Build/Compile/C)
 
-$(BUILD)/%.o: $(SOC_DIR)/%.c | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS_C) -I$(SRCTREE)/include -I$(SOC_DIR) \
-		-c $< -o $@
-endif
+$(BUILD)/%.o: $(DRAMC_DIR)/%.S
+	$(Build/Compile/ASM)
 
-ifeq ($(SOC),en7528)
-$(BUILD)/entry.o: $(SOC_DIR)/entry.S | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(ASFLAGS) -I$(SRCTREE)/include -I$(SOC_DIR) \
-		-x assembler-with-cpp -c $< -o $@
-
-$(BUILD)/readable/%.o: $(READABLE_DIR)/%.c | $(BUILD)/readable
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS_C) -I$(SRCTREE)/include -I$(SOC_DIR) \
-		-I$(READABLE_DIR) -c $< -o $@
-
-$(BUILD)/glue.o: $(SOC_DIR)/glue.c | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS_C) -I$(SRCTREE)/include -I$(SOC_DIR) \
-		-I$(READABLE_DIR) -c $< -o $@
-endif
-
-ifeq ($(SOC),en7580)
+ifeq ($(DRAMC_CHECK_RELOCS),y)
 check-relocs:
-	@if grep -nE '\.reloc.*,[[:space:]]*$$' $(RECON_ASM_SRCS); then \
-		echo "error: DDR source contains unresolved section relocations" >&2; \
+	@if grep -nE '\.reloc.*,[[:space:]]*$$' $(DRAMC_RELOC_SRCS); then \
+		echo "error: DRAMC source contains unresolved section relocations" >&2; \
 		exit 1; \
 	fi
-
-$(BUILD)/reconstructed/%.o: $(RECON_DIR)/%.S | $(BUILD)/reconstructed check-relocs
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(ASFLAGS) -I$(SRCTREE)/include -I$(SOC_DIR) \
-		-x assembler-with-cpp -c $< -o $@
-
-$(BUILD)/entry.o: $(SOC_DIR)/entry.S | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(ASFLAGS) -I$(SRCTREE)/include -I$(SOC_DIR) \
-		-x assembler-with-cpp -c $< -o $@
-
-$(BUILD)/glue.o: $(SOC_DIR)/glue.c | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS_C) -I$(SRCTREE)/include -I$(SOC_DIR) \
-		-c $< -o $@
+else
+check-relocs:
+	@:
 endif
 
-$(BUILD)/dramc.elf: $(ORDERED_OBJS) $(DDR_LDS)
-	$(TOOL_LD) $(ENDIAN) -m $(EMULATION) -T $(DDR_LDS) \
-		-Map $(BUILD)/dramc.map -o $@ $(ORDERED_OBJS)
+# Override only the reconstructed EN7580 assembly objects under LLVM.  LLD
+# can consume the resulting GNU objects; only LLVM IAS lacks R_MIPS16_26.
+ifeq ($(LLVM),1)
+ifneq ($(strip $(DRAMC_GNU_ASM_TARGETS)),)
+$(DRAMC_GNU_ASM_TARGETS): $(BUILD)/%.o: $(DRAMC_DIR)/%.S | check-relocs
+	$(Build/Compile/GNUASM)
+endif
+endif
+
+$(BUILD)/dramc.elf: $(DRAMC_TARGET_OBJS) $(DRAMC_LDS) | check-relocs
+	$(Build/Link)
 
 $(OUTPUT): $(BUILD)/dramc.elf
-	@mkdir -p $(dir $@)
-	$(TOOL_OBJCOPY) -O binary $< $@.tmp
-	@mv -f $@.tmp $@
+	$(Build/Objcopy)
+
 endif
 
 clean:

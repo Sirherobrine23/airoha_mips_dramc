@@ -7,3 +7,4 @@
 /*.bin
 /out/
 __pycache__/
+include/tmp_version.h

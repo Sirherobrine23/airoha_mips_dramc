@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * Minimal EcoNet serial-flash reader used before driver model.
+ * Minimal EcoNet serial-flash access used before driver model.
  * Reconstructed from the vendor TCBoot move_data stage.
  */
 
@@ -24,7 +24,9 @@
 #define SF_SI_CK_SEL			0x09c
 #define SF_STRAP			0x114
 
+#ifndef ECONET_SFC_TINY_WRITE_ONLY
 #define SF_STRAP_ADDR_4B		BIT(0)
+#endif
 #define SF_STRAP_SPI_NAND		BIT(1)
 #define SF_STRAP_DUMMY_APPEND		BIT(2)
 
@@ -40,7 +42,17 @@
 
 #define SPIN_LIMIT			1000000
 #define NAND_PAGE_SIZE			2048
+#ifndef ECONET_NAND_ERASE_SHIFT
+#define ECONET_NAND_ERASE_SHIFT	17	/* 128 KiB */
+#endif
+#define NAND_ERASE_SIZE		(1U << ECONET_NAND_ERASE_SHIFT)
+#define NAND_PROGRAM_CHUNK		256
+#define NAND_STATUS_OIP		BIT(0)
+#define NAND_STATUS_EFAIL		BIT(2)
+#define NAND_STATUS_PFAIL		BIT(3)
+#ifndef ECONET_SFC_TINY_WRITE_ONLY
 #define NOR_READ_CHUNK			1024
+#endif
 
 static inline void __iomem *sf_reg(u32 reg)
 {
@@ -148,11 +160,75 @@ int econet_sfc_init(void)
 	return 0;
 }
 
+static int sf_nand_get_feature(u8 feature, u8 *value)
+{
+	int ret;
+
+	ret = sf_op(OP_CSL, 1);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_OUTS, 1);
+	if (ret)
+		return ret;
+	ret = sf_put_byte(0x0f);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_OUTS, 1);
+	if (ret)
+		return ret;
+	ret = sf_put_byte(feature);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_INS, 1);
+	if (ret)
+		return ret;
+	ret = sf_get_byte(value);
+	if (ret)
+		return ret;
+
+	return sf_finish();
+}
+
+static int sf_nand_wait_ready(u8 *status_out)
+{
+	u8 status = 0;
+	unsigned int timeout = SPIN_LIMIT;
+	int ret;
+
+	while (timeout--) {
+		ret = sf_nand_get_feature(0xc0, &status);
+		if (ret)
+			return ret;
+		if (!(status & NAND_STATUS_OIP)) {
+			if (status_out)
+				*status_out = status;
+			return 0;
+		}
+	}
+
+	return -ETIMEDOUT;
+}
+
+static int sf_nand_write_enable(void)
+{
+	int ret;
+
+	ret = sf_op(OP_CSL, 1);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_OUTS, 1);
+	if (ret)
+		return ret;
+	ret = sf_put_byte(0x06);
+	if (ret)
+		return ret;
+
+	return sf_finish();
+}
+
 static int sf_nand_load_page(u32 page)
 {
 	u8 page_addr[] = { page >> 16, page >> 8, page };
-	u8 status;
-	unsigned int timeout = SPIN_LIMIT;
 	int ret;
 
 	ret = sf_op(OP_CSL, 1);
@@ -174,36 +250,124 @@ static int sf_nand_load_page(u32 page)
 	if (ret)
 		return ret;
 
-	while (timeout--) {
-		ret = sf_op(OP_CSL, 1);
+	return sf_nand_wait_ready(NULL);
+}
+
+static int sf_nand_block_erase(u32 page)
+{
+	u8 page_addr[] = { page >> 16, page >> 8, page };
+	u8 status;
+	int ret;
+
+	ret = sf_nand_write_enable();
+	if (ret)
+		return ret;
+	ret = sf_op(OP_CSL, 1);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_OUTS, 1);
+	if (ret)
+		return ret;
+	ret = sf_put_byte(0xd8);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_OUTS, ARRAY_SIZE(page_addr));
+	if (ret)
+		return ret;
+	ret = sf_put_bytes(page_addr, ARRAY_SIZE(page_addr));
+	if (ret)
+		return ret;
+	ret = sf_finish();
+	if (ret)
+		return ret;
+	ret = sf_nand_wait_ready(&status);
+	if (ret)
+		return ret;
+
+	return (status & NAND_STATUS_EFAIL) ? -EIO : 0;
+}
+
+static int sf_nand_program_load(u32 column, const u8 *src, size_t len)
+{
+	u8 address[] = { column >> 8, column };
+	int ret;
+
+	ret = sf_op(OP_CSL, 1);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_OUTS, 1);
+	if (ret)
+		return ret;
+	ret = sf_put_byte(0x02);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_OUTS, ARRAY_SIZE(address));
+	if (ret)
+		return ret;
+	ret = sf_put_bytes(address, ARRAY_SIZE(address));
+	if (ret)
+		return ret;
+
+	while (len) {
+		size_t chunk = len > NAND_PROGRAM_CHUNK ? NAND_PROGRAM_CHUNK : len;
+
+		ret = sf_op(OP_OUTS, chunk);
 		if (ret)
 			return ret;
-		ret = sf_op(OP_OUTS, 1);
+		ret = sf_put_bytes(src, chunk);
 		if (ret)
 			return ret;
-		ret = sf_put_byte(0x0f);
-		if (ret)
-			return ret;
-		ret = sf_op(OP_OUTS, 1);
-		if (ret)
-			return ret;
-		ret = sf_put_byte(0xc0);
-		if (ret)
-			return ret;
-		ret = sf_op(OP_INS, 1);
-		if (ret)
-			return ret;
-		ret = sf_get_byte(&status);
-		if (ret)
-			return ret;
-		ret = sf_finish();
-		if (ret)
-			return ret;
-		if (!(status & BIT(0)))
-			return 0;
+		src += chunk;
+		len -= chunk;
 	}
 
-	return -ETIMEDOUT;
+	return sf_finish();
+}
+
+static int sf_nand_program_execute(u32 page)
+{
+	u8 page_addr[] = { page >> 16, page >> 8, page };
+	u8 status;
+	int ret;
+
+	ret = sf_op(OP_CSL, 1);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_OUTS, 1);
+	if (ret)
+		return ret;
+	ret = sf_put_byte(0x10);
+	if (ret)
+		return ret;
+	ret = sf_op(OP_OUTS, ARRAY_SIZE(page_addr));
+	if (ret)
+		return ret;
+	ret = sf_put_bytes(page_addr, ARRAY_SIZE(page_addr));
+	if (ret)
+		return ret;
+	ret = sf_finish();
+	if (ret)
+		return ret;
+	ret = sf_nand_wait_ready(&status);
+	if (ret)
+		return ret;
+
+	return (status & NAND_STATUS_PFAIL) ? -EIO : 0;
+}
+
+static int sf_nand_program_page(u32 page, u32 column, const u8 *src,
+				size_t len)
+{
+	int ret;
+
+	ret = sf_nand_write_enable();
+	if (ret)
+		return ret;
+	ret = sf_nand_program_load(column, src, len);
+	if (ret)
+		return ret;
+
+	return sf_nand_program_execute(page);
 }
 
 static int sf_nand_read_cache(u32 column, u8 *dst, size_t len,
@@ -251,6 +415,7 @@ static int sf_nand_read_cache(u32 column, u8 *dst, size_t len,
 	return sf_finish();
 }
 
+#ifndef ECONET_SFC_TINY_WRITE_ONLY
 static int sf_nor_read_once(u32 offset, u8 *dst, size_t len, bool addr4b,
 			    bool dummy_append)
 {
@@ -321,33 +486,46 @@ static int sf_nor_read(u32 offset, u8 *dst, size_t len, bool addr4b,
 	return 0;
 }
 
+#endif
+
+
+static int sf_nand_get_page_size(u32 *page_size)
+{
+#ifdef ECONET_NAND_PAGE_SHIFT
+	*page_size = 1U << ECONET_NAND_PAGE_SHIFT;
+	return 0;
+#else
+	u32 shift = __raw_readl((void *)0xbfa40020);
+
+	if (shift < 11 || shift > 13)
+		return -EINVAL;
+	*page_size = 1U << shift;
+	return 0;
+#endif
+}
+
 int econet_sfc_read(u32 offset, void *dst, size_t len)
 {
 	u32 strap = __raw_readl(sf_reg(SF_STRAP));
 	u32 page_size = NAND_PAGE_SIZE;
-#ifdef ECONET_STANDALONE_BOOT
-#ifndef ECONET_NAND_PAGE_SHIFT
-	u32 shift;
-#endif
-#endif
 	u8 *buf = dst;
 	int ret;
 
-	if (!(strap & SF_STRAP_SPI_NAND))
+	if (!(strap & SF_STRAP_SPI_NAND)) {
+#ifdef ECONET_SFC_TINY_WRITE_ONLY
+		/* Chainloader flash support is deliberately SPI-NAND only. */
+		return -EOPNOTSUPP;
+#else
 		return sf_nor_read(offset, buf, len, strap & SF_STRAP_ADDR_4B,
 				   strap & SF_STRAP_DUMMY_APPEND);
+#endif
+	}
 
 	/* move_data detects the NAND page shift during cold boot. */
 #ifdef ECONET_STANDALONE_BOOT
-#ifdef ECONET_NAND_PAGE_SHIFT
-	page_size = 1U << ECONET_NAND_PAGE_SHIFT;
-#else
-	shift = __raw_readl((void *)0xbfa40020);
-
-	if (shift < 11 || shift > 13)
-		return -EINVAL;
-	page_size = 1U << shift;
-#endif
+	ret = sf_nand_get_page_size(&page_size);
+	if (ret)
+		return ret;
 #endif
 	while (len) {
 		u32 page = offset / page_size;
@@ -367,6 +545,89 @@ int econet_sfc_read(u32 offset, void *dst, size_t len)
 
 		offset += chunk;
 		buf += chunk;
+		len -= chunk;
+	}
+
+	return 0;
+}
+
+
+int econet_sfc_erase(u32 offset, size_t len)
+{
+	u32 strap = __raw_readl(sf_reg(SF_STRAP));
+	u32 page_size;
+	int ret;
+
+	if (!(strap & SF_STRAP_SPI_NAND))
+		return -EOPNOTSUPP;
+	if (!len || (offset & (NAND_ERASE_SIZE - 1)) ||
+	    (len & (NAND_ERASE_SIZE - 1)))
+		return -EINVAL;
+	ret = sf_nand_get_page_size(&page_size);
+	if (ret)
+		return ret;
+
+	while (len) {
+		ret = sf_nand_block_erase(offset / page_size);
+		if (ret)
+			return ret;
+		offset += NAND_ERASE_SIZE;
+		len -= NAND_ERASE_SIZE;
+	}
+
+	return 0;
+}
+
+int econet_sfc_write(u32 offset, const void *src, size_t len)
+{
+	u32 strap = __raw_readl(sf_reg(SF_STRAP));
+	u32 page_size;
+	const u8 *buf = src;
+	int ret;
+
+	if (!(strap & SF_STRAP_SPI_NAND))
+		return -EOPNOTSUPP;
+	ret = sf_nand_get_page_size(&page_size);
+	if (ret)
+		return ret;
+
+	while (len) {
+		u32 page = offset / page_size;
+		u32 column = offset % page_size;
+		size_t chunk = page_size - column;
+
+		if (chunk > len)
+			chunk = len;
+		ret = sf_nand_program_page(page, column, buf, chunk);
+		if (ret)
+			return ret;
+		offset += chunk;
+		buf += chunk;
+		len -= chunk;
+	}
+
+	return 0;
+}
+
+int econet_sfc_verify(u32 offset, const void *src, size_t len)
+{
+	const u8 *expected = src;
+	u8 tmp[64];
+	int ret;
+
+	while (len) {
+		size_t chunk = len > sizeof(tmp) ? sizeof(tmp) : len;
+		size_t i;
+
+		ret = econet_sfc_read(offset, tmp, chunk);
+		if (ret)
+			return ret;
+		for (i = 0; i < chunk; i++) {
+			if (tmp[i] != expected[i])
+				return -EIO;
+		}
+		offset += chunk;
+		expected += chunk;
 		len -= chunk;
 	}
 

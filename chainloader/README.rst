@@ -113,3 +113,16 @@ the 3 s handshake cadence and the purge-before-NAK all hang off that.
 On failure the report gives ``blocks=`` ``dup=`` ``tries=`` ``mode=`` ``err=``
 ``lsrerr=`` plus the first error: ``kind`` 1 bad header, 2 intra-packet
 timeout, 3 CRC/checksum, 4 out-of-sequence, with the first 16 bytes received.
+
+Interactive boot menu
+---------------------
+
+After the DRAM/self-check stage the chainloader waits three seconds for a key.
+``x`` selects the normal U-Boot XMODEM path, ``b`` receives a 1 MiB
+``tcboot.bin`` and calls ``chainloader_flash_tcboot()``.  Timeout defaults to
+``x`` so unattended recovery behaves like the old chainloader.
+
+The default ``chainloader_flash_tcboot()`` implementation is deliberately weak
+and returns ``-38`` (unsupported).  A board/SFC write backend should override
+it with a strong implementation that erases, writes, reads back and verifies
+flash offset zero before returning success.

@@ -25,3 +25,18 @@ packer writes a jump to 0x9fa30280 in its otherwise zero initial bytes,
 because SDK boot2 enters calibration at 0x9fa30000.
 EN7528 uses the existing reconstructed calibration sources with an
 explicit SRAM stack and UART initialization.
+
+
+Early SFC write API
+-------------------
+
+`early_sfc.c` is shared by the flash loader and the recovery/bootext
+chainloader.  Besides `econet_sfc_read()`, it exposes erase, write and verify
+operations for SPI-NAND.  The destructive path intentionally refuses SPI-NOR
+until its write/erase sequence has been validated on hardware.  SPI-NAND
+program/erase status is checked and callers should always run the readback
+verification before reporting success.
+
+The minimal early driver does not implement BBT/BMT remapping.  It is suitable
+for the bootloader area only when that physical range is known to contain no
+bad eraseblocks.

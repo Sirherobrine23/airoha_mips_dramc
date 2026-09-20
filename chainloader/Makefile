@@ -13,12 +13,14 @@ EMULATION := elf32btsmip
 CROSS_DEFAULT := mips-linux-gnu-
 CHAINLOADER_BASE ?= 0x80009000
 SOC_CPPFLAGS :=
+SFC_CPPFLAGS := -DECONET_NAND_PAGE_SHIFT=11 -DECONET_SFC_TINY_WRITE_ONLY
 else ifeq ($(SOC),en7528)
 ENDIAN := -EL
 EMULATION := elf32ltsmip
 CROSS_DEFAULT := mipsel-linux-gnu-
 CHAINLOADER_BASE ?= 0x9fa35000
 SOC_CPPFLAGS := -DCHAINLOADER_EN7528
+SFC_CPPFLAGS := -DECONET_SFC_TINY_WRITE_ONLY
 else
 $(error recovery/bootext chainloader is not supported for $(SOC))
 endif
@@ -35,7 +37,7 @@ OUTPUT ?= $(OUT)/$(SOC)-recovery-chainloader.bin
 CFLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls -fno-pic \
 	-fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
 	$(SOC_CPPFLAGS)
-OBJS := $(BUILD)/start.o $(BUILD)/chainloader.o
+OBJS := $(BUILD)/start.o $(BUILD)/chainloader.o $(BUILD)/flash-write.o $(BUILD)/early_sfc.o
 
 .PHONY: all clean
 all: $(OUTPUT)
@@ -49,6 +51,14 @@ $(BUILD)/start.o: $(SRCTREE)/chainloader/start.S | $(BUILD)
 $(BUILD)/chainloader.o: $(SRCTREE)/chainloader/chainloader.c $(SRCTREE)/chainloader/chainloader.h | $(BUILD)
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include \
 		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
+
+$(BUILD)/flash-write.o: $(SRCTREE)/chainloader/flash-write.c $(SRCTREE)/chainloader/chainloader.h $(SRCTREE)/flash/sfc.h | $(BUILD)
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/flash \
+		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
+
+$(BUILD)/early_sfc.o: $(SRCTREE)/flash/early_sfc.c $(SRCTREE)/flash/loader.h | $(BUILD)
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) $(SFC_CPPFLAGS) -I$(SRCTREE)/flash \
+		-c $< -o $@
 
 $(BUILD)/chainloader.elf: $(OBJS) $(SRCTREE)/chainloader/chainloader.lds
 	$(TOOL_LD) $(ENDIAN) -m $(EMULATION) --defsym CHAINLOADER_BASE=$(CHAINLOADER_BASE) \

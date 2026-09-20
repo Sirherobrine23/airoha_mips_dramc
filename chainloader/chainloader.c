@@ -28,9 +28,6 @@ static void uart_rx_settle(void)
 	__asm__ volatile("sync" ::: "memory");
 }
 
-static u32 ticks_per_ms;
-static u32 tx_chars;
-
 static void uart_putc(u8 c)
 {
 	while (!(mmio_read32(UART_BASE + UART_LSR) & UART_LSR_THRE))
@@ -46,6 +43,25 @@ static void uart_puts(const char *s)
 			uart_putc('\r');
 		uart_putc((u8)*s++);
 	}
+}
+
+static void uart_put_uint(unsigned int value)
+{
+	char buf[10];
+	unsigned int i = 0;
+
+	if (value == 0) {
+		uart_putc('0');
+		return;
+	}
+
+	while (value) {
+		buf[i++] = '0' + (value % 10);
+		value /= 10;
+	}
+
+	while (i)
+		uart_putc(buf[--i]);
 }
 
 /*
@@ -707,6 +723,25 @@ static void note_error(u32 kind, u32 blk, u32 exp, u32 len, u32 got, u32 want)
 	err_count++;
 }
 
+static void xmodem_reset_state(void)
+{
+	err_count = 0;
+	err_first_kind = 0;
+	err_first_blk = 0;
+	err_first_exp = 0;
+	err_first_len = 0;
+	err_first_got = 0;
+	err_first_want = 0;
+	stat_blocks = 0;
+	stat_dups = 0;
+	stat_tries = 0;
+	stat_1k = 0;
+	stat_csum = 0;
+	rx_lsr_err = 0;
+	rx_wait_n = 0;
+	have_pushback = 0;
+}
+
 /*
  * XMODEM receiver: 128-byte (SOH) and 1K (STX) blocks, CRC16/XMODEM with
  * fallback to 8-bit checksum, per-byte timeout, and purge-based resync.
@@ -987,7 +1022,101 @@ static void report(void)
 		uart_puts(" waits=0x");
 		put_hex32(rx_wait_n);
 	}
+	uart_puts("\n");
+}
+
+enum boot_action {
+	BOOT_ACTION_CHAINLOAD,
+	BOOT_ACTION_FLASH_TCBOOT,
+};
+
+static enum boot_action prompt_boot_action(void)
+{
+	u32 sec = 0;
+	u8 ch;
+
+	uart_purge(30);
+
+	uart_puts("Press x to chainload or b to flash tcboot.bin ");
+	uart_puts("[");
+	uart_put_uint(CHAINLOADER_MENU_TIMEOUT_SEC);
+	uart_puts("s, default: x]\n");
+
+	while (sec++ < CHAINLOADER_MENU_TIMEOUT_SEC) {
+		if (!uart_getc_to(&ch, 1000u))
+			continue;
+
+		switch (ch) {
+		case 'X':
+		case 'x':
+			uart_puts("chainload selected\n");
+			return BOOT_ACTION_CHAINLOAD;
+
+		case 'B':
+		case 'b':
+			uart_puts("flash tcboot.bin selected\n");
+			return BOOT_ACTION_FLASH_TCBOOT;
+
+		default:
+			break;
+		}
+	}
+
+	uart_puts("timeout -> chainload\n");
+	return BOOT_ACTION_CHAINLOAD;
+}
+
+static int receive_and_flash_tcboot(void)
+{
+	u32 len, crc;
+	int ret;
+
+	uart_puts("Send tcboot.bin via XMODEM now (expected 0x00100000 bytes)\n");
+	xmodem_reset_state();
+	len = xmodem_receive();
+	if (!len) {
+		report();
+		uart_puts("XMODEM failed/cancelled\n");
+		return -1;
+	}
+
+	__asm__ volatile("sync" ::: "memory");
+	report();
+	uart_puts("received tcboot.bin size=0x");
+	put_hex32(len);
+	if (len < TCBOOT_FLASH_SIZE_MIN) {
+		uart_puts(" min=0x");
+		put_hex32(TCBOOT_FLASH_SIZE_MIN);
+		uart_puts("; refusing to flash\n");
+		return -1;
+	}
+
+	/*
+	 * The entire 1 MiB image is now resident in DRAM.  Only after a
+	 * complete XMODEM transfer, exact-size check and CRC calculation do we
+	 * touch the boot flash.  This intentionally avoids XMODEM->flash
+	 * streaming: retransmissions must never partially program tcboot.bin.
+	 */
+	crc = crc32_ieee((const volatile u8 *)(uintptr_t)UBOOT_LOAD_CACHED, len);
+	uart_puts("tcboot staged in RAM crc32=0x");
+	put_hex32(crc);
 	uart_putc('\n');
+
+	uart_puts("erasing/writing/verifying tcboot.bin...\n");
+	ret = chainloader_flash_tcboot((const void *)(uintptr_t)UBOOT_LOAD_CACHED, len);
+	if (ret == CHAINLOADER_FLASH_UNSUPPORTED) {
+		uart_puts("flash write unsupported on this media/build; returning to menu\n");
+		return ret;
+	}
+	if (ret) {
+		uart_puts("flash failed status=0x");
+		put_hex32((u32)ret);
+		uart_puts("; returning to menu\n");
+		return ret;
+	}
+
+	uart_puts("tcboot.bin flashed and verified; reset/power-cycle the board\n");
+	return 0;
 }
 
 static void halt(void)
@@ -1027,8 +1156,17 @@ void chainloader_main(void)
 		halt();
 	}
 
-	uart_puts("waiting\n");
+	for (;;) {
+		if (prompt_boot_action() == BOOT_ACTION_FLASH_TCBOOT) {
+			if (!receive_and_flash_tcboot())
+				halt();
+			continue;
+		}
+		break;
+	}
 
+	uart_puts("waiting for U-Boot\n");
+	xmodem_reset_state();
 	len = xmodem_receive();
 	if (!len) {
 		report();
@@ -1047,12 +1185,12 @@ void chainloader_main(void)
 		if (i != 3)
 			uart_putc(' ');
 	}
-	uart_putc('\n');
+	uart_puts("\n");
 
 	image_crc = crc32_ieee((volatile u8 *)UBOOT_LOAD_CACHED, len);
 	uart_puts("xfer crc32=0x");
 	put_hex32(image_crc);
-	uart_putc('\n');
+	uart_puts("\n");
 
 	if (parse_boot_image((const u8 *)(uintptr_t)UBOOT_LOAD_CACHED, len, &image) < 0) {
 		uart_puts("invalid/unsupported U-Boot image\n");
@@ -1067,7 +1205,7 @@ void chainloader_main(void)
 	put_hex32(image.load);
 	uart_puts(" entry=0x");
 	put_hex32(image.entry);
-	uart_putc('\n');
+	uart_puts("\n");
 
 	move_payload((u8 *)(uintptr_t)image.load, image.data, image.size);
 	w = (volatile u32 *)(uintptr_t)image.load;
@@ -1079,7 +1217,7 @@ void chainloader_main(void)
 	watchdog_kick();
 	uart_puts("jump 0x");
 	put_hex32(image.entry);
-	uart_putc('\n');
+	uart_puts("\n");
 	__asm__ volatile("sync" ::: "memory");
 	chainload_jump(image.entry);
 }

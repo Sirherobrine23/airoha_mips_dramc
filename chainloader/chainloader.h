@@ -35,6 +35,12 @@ typedef uint32_t u32;
 #define UBOOT_MAX_SIZE					0x00400000u
 #define UBOOT_DRAM_LIMIT				0x82000000u
 
+/* Interactive bootext/recovery menu. */
+#define CHAINLOADER_MENU_TIMEOUT_SEC	10u
+#define CHAINLOADER_FLASH_UNSUPPORTED	(-38)
+#define TCBOOT_FLASH_SIZE				0x00100000u
+#define TCBOOT_FLASH_SIZE_MIN			0x00020000u
+
 #define CR_TIMER_CTL					0xbfbf0100u
 
 /* Assumed console baud rate for calibrating the timebase. */
@@ -88,6 +94,10 @@ struct econet_boot_header {
 extern u32 __image_start;
 extern u32 __chk_start;
 
+static u32 ticks_per_ms;
+static u32 tx_chars;
+
+
 static inline u32 mmio_read32(u32 addr)
 {
 	return *(volatile u32 *)(uintptr_t)addr;
@@ -107,6 +117,24 @@ static inline u32 cp0_count(void)
 	return v;
 }
 
+
+static inline void delay_ms(unsigned int ms)
+{
+	while (ms--) {
+		u32 start = cp0_count();
+
+		while ((u32)(cp0_count() - start) < ticks_per_ms)
+			;
+	}
+}
+
+static inline void sleep_sec(unsigned int sec)
+{
+	while (sec--)
+		delay_ms(1000);
+}
+
+
 enum {
 	SOH = 0x01,
 	STX = 0x02,
@@ -123,5 +151,7 @@ enum image_type {
 	TYPE_RAW,
 	TYPE_ECNT,
 };
+
+int chainloader_flash_tcboot(const void *image, u32 len);
 
 #endif

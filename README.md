@@ -43,6 +43,7 @@ out/<soc>/<soc>-chainload.bin
 
 ```text
 out/en751221/en751221-recovery-chainloader.bin
+out/en751221/bootext.bin
 ```
 
 `en7528` additionally builds a standalone BootROM/XMODEM boot extension:
@@ -55,6 +56,91 @@ The normal `chainload.bin` is the post-DRAM flash reader.  The EN751221
 recovery helper instead runs from DRAM after the vendor/BootROM DDR stage.  The
 EN7528 `bootext.bin` is different again: it is a single FE-SRAM image containing
 the EN7528 DRAMC stage followed by an SRAM-resident XMODEM chainloader.
+
+### EN751221 recovery with DDR reinitialization (experimental)
+
+`make en751221-bootext` builds `out/en751221/bootext.bin`. Unlike EN7528,
+the EN751221 BootROM downloads this file to **DRAM at 0x80009000**, not
+directly to FE SRAM. A small bootstrap verifies the CRC table covering both
+embedded payloads, enables PBUS access to FE memory, and copies them with
+32-bit stores and readback verification:
+
+```text
+0x9fa32800  in-tree EN751221 DRAMC (entry at 0x9fa32a80)
+            runtime state, including the DRAMC stack, ends below 0x9fa38000
+0x9fa38000  SRAM XMODEM receiver and its DDR handoff entry
+            code, CRC table and BSS must end below 0x9fa3c000
+```
+
+The SRAM entry uses no DRAM stack while the DRAMC runs. It supplies the
+return address through `SCREG_WR0`, applies the post-calibration SLM,
+arbiter and SMC setup from `flash/en751221/boot2.S`, then enters the normal
+receiver with a fresh DRAM stack. The existing receiver's image formats,
+menu and default chainload action are unchanged. **The menu also offers
+flash writing: do not select it for a RAM-only recovery test.**
+
+For this EN751221 bootext only, LLVM builds use `-Oz`; GCC keeps `-Os`.
+The 1 KiB XMODEM packet buffer lives on the cached DRAM stack after calibration,
+rather than occupying the receiver's limited SRAM BSS. Other recovery targets
+retain their static buffer. The SRAM addresses, CRC coverage and overlap
+checks are unchanged. Headroom remains limited, so these checks must stay
+enabled for new compiler versions.
+
+Run toolchain builds sequentially in separate, initially empty output
+directories, then verify each set of artifacts, for example:
+
+```sh
+make -j1 O="$PWD/out/gcc" CROSS_COMPILE=/path/to/mips-linux-gnu- en751221
+make O="$PWD/out/gcc" CROSS_COMPILE=/path/to/mips-linux-gnu- en751221-bootext-check
+make -j1 O="$PWD/out/clang" LLVM=1 en751221
+make O="$PWD/out/clang" LLVM=1 en751221-bootext-check
+```
+
+This is needed because the XR500v's BootROM-only DDR setup differed from
+the flash path: missing clock metadata, different PLL/DRAMC setup, and
+missing QDMA descriptor DONE writeback. An earlier DDR-stage chainloader
+restored working Ethernet and Linux startup on that board.
+
+The initial standalone implementation was tested in one cold BootROM cycle on
+an Archer XR500v (EN7526G, 256 MiB DDR3). The wrapper CRC, SRAM readback and
+receiver CRC passed; DRAMC reported calibration status 0; U-Boot loaded over
+XMODEM, and a 9.3 MiB Linux initramfs transferred by TFTP with matching CRC.
+Linux booted with the watchdog active, CPU 900 MHz and bus 225 MHz. An 8 MiB
+synthetic download and three 8 MiB uploads matched SHA-256; the system ran
+for over ten minutes without the previous QDMA completion warning or reset.
+The board was then power-cycled back to its existing flash image.
+
+That hardware run predates the packet-buffer/LLVM-footprint correction above.
+The corrected revision has passed clean GCC 14.4 and Clang 19.1.7/21.1.8
+builds and artifact checks. Its Clang 21.1.8 artifact has since passed one
+cold BootROM recovery on the same XR500v: DDR/readback/receiver CRC checks,
+raw U-Boot reception, TFTP, Linux userspace with its watchdog active, and
+an 8 MiB download plus three 8 MiB uploads with matching SHA-256. The board
+was returned to its existing flash image afterward. The tested artifact was
+built at `35d600c` (before the CI-only rebase), SHA-256
+`6c1fa7b578014e606de3654f18e0d67a8421ca87f37cab4adec7cbecf38afe57`.
+This does not validate repeated recovery, prolonged stress, other boards,
+or the newly built GCC/Clang 19 artifacts.
+
+This is a single-board smoke test, not repeated-cold-boot or long-duration
+validation. The tested second stage was raw `u-boot.bin`; the receiver's
+other input formats and flash-writing menu were not hardware-tested in
+this run. Keep a known-good recovery helper when trying it on another board.
+The original DRAM-only `en751221-recovery-chainloader.bin` remains available
+unchanged for comparison.
+
+The C host selftests cover CRC tables, embedded payload corruption,
+truncation and SRAM boundary rejection. After building, check the actual
+images and linker symbols with the same host utility and the cross `nm`:
+
+```sh
+make test
+make en751221-bootext-check CROSS_COMPILE=/path/to/mips-linux-gnu-
+```
+
+`en751221-bootext-check` reads existing artifacts; it does not rebuild or
+modify firmware. Neither check runs firmware or replaces a BootROM hardware
+test. No Python dependency is needed.
 
 ### GNU cross toolchain
 

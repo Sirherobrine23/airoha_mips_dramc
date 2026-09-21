@@ -699,7 +699,15 @@ static void xmodem_reset_state(void)
 static u32 xmodem_receive(void)
 {
 	volatile u8 *dst = (volatile u8 *)UBOOT_LOAD_CACHED;
+#ifdef EN751221_BOOTEXT
+	/*
+	 * DDR calibration has returned before this receiver runs. Its stack
+	 * is in cached DRAM, so the packet buffer need not consume FE SRAM.
+	 */
+	u8 packet[1024];
+#else
 	static u8 packet[1024];
+#endif
 	u8 expected = 1;
 	u32 total = 0;
 	u8 ch;

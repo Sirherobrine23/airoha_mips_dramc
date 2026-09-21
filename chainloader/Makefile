@@ -31,16 +31,20 @@ TOOL_LD ?= $(CROSS_COMPILE)ld
 TOOL_OBJCOPY ?= $(CROSS_COMPILE)objcopy
 TOOL_NM ?= $(CROSS_COMPILE)nm
 TOOL_CC_TARGET ?=
+CHAINLOADER_CPPFLAGS ?=
+SIZE_OPT ?= -Os
 
 BUILD := $(OUT)/.recovery-chainloader
 OUTPUT ?= $(OUT)/$(SOC)-recovery-chainloader.bin
 CFLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls -fno-pic \
-	-fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
-	$(SOC_CPPFLAGS)
+	-fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(SIZE_OPT) -G0 -Wall \
+	$(SOC_CPPFLAGS) $(CHAINLOADER_CPPFLAGS)
 OBJS := $(BUILD)/start.o $(BUILD)/uart.o $(BUILD)/chainloader.o $(BUILD)/flash-write.o $(BUILD)/early_sfc.o
 
 .PHONY: all clean
 all: $(OUTPUT)
+
+$(OBJS): $(SRCTREE)/chainloader/Makefile
 
 $(BUILD):
 	@mkdir -p $@

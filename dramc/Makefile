@@ -47,6 +47,7 @@ TOOL_OBJCOPY ?= $(CROSS_COMPILE)objcopy
 TOOL_CC_TARGET ?=
 endif
 DDR_CPPFLAGS ?=
+SIZE_OPT ?= -Os
 
 # Used only by the EN7580 reconstructed MIPS16 sources when LLVM=1.  A
 # mips64-linux-gnu gcc can emit both -EB and -EL O32 objects, so one fallback
@@ -59,7 +60,7 @@ DRAMC_TARGET_OBJS := $(addprefix $(BUILD)/,$(DRAMC_OBJS))
 DRAMC_GNU_ASM_TARGETS := $(addprefix $(BUILD)/,$(DRAMC_GNU_ASM_OBJS))
 
 CFLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
-	-fno-pic -fno-pie -ffreestanding -fno-builtin -Os -G0
+	-fno-pic -fno-pie -ffreestanding -fno-builtin $(SIZE_OPT) -G0
 CFLAGS_C := $(CFLAGS) -fomit-frame-pointer -fno-stack-protector $(DDR_CPPFLAGS)
 ASFLAGS := $(CFLAGS) -D__ASSEMBLY__ $(DDR_CPPFLAGS)
 CPPFLAGS := -I$(SRCTREE)/include $(DRAMC_INCLUDES)
@@ -112,6 +113,8 @@ endef
 
 .PHONY: all clean check-relocs
 all: $(OUTPUT)
+
+$(DRAMC_TARGET_OBJS): $(DRAMC_MAKEFILE) $(SOC_CONFIG) $(DRAMC_CONFIG)
 
 $(BUILD):
 	@mkdir -p $@

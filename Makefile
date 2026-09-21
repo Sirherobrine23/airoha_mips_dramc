@@ -12,7 +12,7 @@ PLAIN_VERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(S
 
 SOCS := en751221 en751627 en7528
 TCBOOT_SOCS := en751221 en751627 en7528
-BOOTEXT_SOCS := en751627 en7528 en7580
+BOOTEXT_SOCS := en751221 en751627 en7528 en7580
 
 ifeq ($(EXPERIMENTAL_SOCS),1)
 SOCS += en7580
@@ -81,6 +81,20 @@ en751221-recovery: $(HOST_TOOL)
 
 test: $(HOST_TOOL)
 	@"$(HOST_TOOL)" selftest
+
+# Check existing EN751221 artifacts without rebuilding firmware or needing Python.
+.PHONY: en751221-bootext-check
+EN751221_TEST_NM = $(if $(filter 1,$(LLVM)),llvm-nm,$(if $(CROSS_COMPILE),$(CROSS_COMPILE),mips-linux-gnu-)nm)
+EN751221_TEST_DIR = $(abspath $(O))/en751221/.bootext
+en751221-bootext-check: $(HOST_TOOL)
+	$(EN751221_TEST_NM) -n "$(EN751221_TEST_DIR)/bootstrap.elf" > "$(EN751221_TEST_DIR)/bootstrap.nm"
+	$(EN751221_TEST_NM) -n "$(EN751221_TEST_DIR)/dramc-work/.dramc/dramc.elf" > "$(EN751221_TEST_DIR)/dramc.nm"
+	$(EN751221_TEST_NM) -n "$(EN751221_TEST_DIR)/chainloader-work/.recovery-chainloader/chainloader.elf" > "$(EN751221_TEST_DIR)/chainloader.nm"
+	$(HOST_TOOL) check-en751221-bootext \
+		--image "$(abspath $(O))/en751221/bootext.bin" \
+		--dramc "$(EN751221_TEST_DIR)/dramc.bin" --chainloader "$(EN751221_TEST_DIR)/chainloader.bin" \
+		--bootstrap-symbols "$(EN751221_TEST_DIR)/bootstrap.nm" \
+		--dramc-symbols "$(EN751221_TEST_DIR)/dramc.nm" --chainloader-symbols "$(EN751221_TEST_DIR)/chainloader.nm"
 
 clean:
 	@rm -rf "$(abspath $(O))"

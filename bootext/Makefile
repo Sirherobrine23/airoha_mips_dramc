@@ -3,13 +3,16 @@
 #   DRAMC @ 0x9fa30000 -> SRAM XMODEM chainloader @ 0x9fa35000 -> U-Boot.
 
 SRCTREE ?= $(abspath $(CURDIR)/..)
-OUT ?= $(SRCTREE)/out/en7528
 SOC ?= en7528
+OUT ?= $(SRCTREE)/out/$(SOC)
 HOST_TOOL ?= $(SRCTREE)/out/host/econet-image
 UBOOT_LOAD_ADDR ?= 0x81000000
 LLVM ?= 0
 GNU_CROSS_COMPILE ?=
 
+ifeq ($(SOC),en751221)
+include $(SRCTREE)/bootext/en751221.mk
+else
 ifneq ($(SOC),en7528)
 $(error bootext is currently only supported for en7528)
 endif
@@ -80,3 +83,4 @@ $(OUTPUT): $(DDR_IMAGE) $(CHAIN_IMAGE) check-layout $(HOST_TOOL)
 
 clean:
 	@rm -rf $(BUILD) $(OUTPUT)
+endif

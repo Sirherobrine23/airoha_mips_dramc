@@ -6,6 +6,43 @@
 .globl _start
 .ent _start
 _start:
+#ifdef EN751221_BOOTEXT
+	/*
+	 * SRAM entry: DRAM (including the old stack) is about to be rebuilt.
+	 * Do not use a stack or call C before the stage returns through WR0.
+	 * The bootstrap flushed caches before jumping here. The stage owns
+	 * its own stack and BSS below this image, as checked by the builder.
+	 */
+	la	$t0, en751221_ddr_return
+	li	$t1, 0xbfb00280
+	sw	$t0, 0($t1)
+	sync
+	li	$t0, 0x9fa32a80	/* DRAMC start, past its 0x280-byte prefix */
+	jr	$t0
+	 nop
+en751221_ddr_return:
+	li	$t1, 0xbfb00280
+	sw	$zero, 0($t1)
+	/* Post-calibration sequence from flash/en751221/boot2.S. */
+	li	$t0, 0xbfa60000
+	lw	$t1, 0($t0)
+	ori	$t1, $t1, 1
+	sw	$t1, 0($t0)
+	li	$t0, 0xbfb00000
+	li	$t1, 0x80071f1e
+	sw	$t1, 0x20($t0)
+	li	$t1, 0x00071f1f
+	sw	$t1, 0x24($t0)
+	li	$t1, 0x80050000
+	sw	$t1, 0x34($t0)
+	li	$t0, 0xbfb10000
+	li	$t1, 0x102d1040
+	sw	$t1, 0($t0)
+	li	$t1, 0x200028d0
+	sw	$t1, 0x14($t0)
+	sync
+	/* DRAM is now usable; the normal entry supplies its stack and BSS. */
+#endif
 	/* Mask every interrupt inherited from the BootROM before polling the UART. */
 	mfc0	$t0, $12
 	li	$t1, 0xffff00fe

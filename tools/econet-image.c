@@ -10,6 +10,7 @@
  *	   --max-size SIZE --output FILE
  *   econet-image tcboot --soc SOC --image FILE [--output FILE] [--stock FILE]
  *   econet-image selftest
+ *   econet-image check-en751221-bootext (images + nm symbol listings)
  */
 
 #include <errno.h>
@@ -473,6 +474,117 @@ static int stage_interval(const struct symbol *syms, size_t nsyms,
 	*start = a;
 	*end = b;
 	return 0;
+}
+
+/* Read-only bootext verification, shared by artifact checks and selftests. */
+static bool chainloader_crc_valid(const struct blob *image, size_t checked)
+{
+	size_t off;
+
+	if (!checked || checked > CRC_TABLE_ENTRIES * XMODEM_BLOCK ||
+	    checked > image->len || image->len - checked < CRC_TABLE_SIZE ||
+	    image->len % XMODEM_BLOCK)
+		return false;
+	for (off = 0; off < checked; off += XMODEM_BLOCK) {
+		size_t len = checked - off;
+
+		if (len > XMODEM_BLOCK)
+			len = XMODEM_BLOCK;
+		if (crc32_ieee(image->data + off, len) !=
+		    get_be32(image->data + checked + (off / XMODEM_BLOCK) * 4))
+			return false;
+	}
+	return true;
+}
+
+static bool en751221_layout_valid(uint32_t ddr_entry, uint32_t ddr_end,
+				 uint32_t chain_end, size_t ddr_size, size_t chain_size)
+{
+	return ddr_entry == 0x9fa32a80u && ddr_end > ddr_entry &&
+		ddr_end <= 0x9fa38000u && chain_end > 0x9fa38000u &&
+		chain_end <= 0x9fa3c000u && ddr_size > 0x280u &&
+		ddr_size <= 0x5800u && chain_size > 0 && chain_size <= 0x4000u;
+}
+
+static bool embedded_blob_matches(const struct blob *outer, size_t checked,
+				 uint32_t base, uint32_t start, uint32_t end,
+				 const struct blob *payload)
+{
+	size_t off;
+
+	if (start < base || end < start || (start & 3) || (end & 3))
+		return false;
+	off = start - base;
+	if (checked > outer->len || off > checked ||
+	    (size_t)(end - start) != payload->len || payload->len > checked - off)
+		return false;
+	return !memcmp(outer->data + off, payload->data, payload->len);
+}
+
+static uint32_t required_symbol(const struct symbol *syms, size_t count,
+				const char *name)
+{
+	uint32_t value;
+
+	if (!lookup_symbol(syms, count, name, &value)) {
+		fprintf(stderr, "econet-image: missing bootext symbol %s\n", name);
+		exit(EXIT_FAILURE);
+	}
+	return value;
+}
+
+static int check_en751221_bootext(const char *image_path, const char *ddr_path,
+				const char *chain_path, const char *boot_symbols,
+				const char *ddr_symbols, const char *chain_symbols)
+{
+	struct blob outer = read_file(image_path), ddr = read_file(ddr_path);
+	struct blob chain = read_file(chain_path);
+	struct symbol *bs, *ds, *cs;
+	size_t nb, nd, nc;
+	uint32_t base, check, cb, cc, ss, se, dstart, dend, unused;
+	int result = 1;
+
+	read_symbols(boot_symbols, &bs, &nb);
+	read_symbols(ddr_symbols, &ds, &nd);
+	read_symbols(chain_symbols, &cs, &nc);
+	base = required_symbol(bs, nb, "__image_start");
+	check = required_symbol(bs, nb, "__chk_start");
+	cb = required_symbol(cs, nc, "__image_start");
+	cc = required_symbol(cs, nc, "__chk_start");
+	ss = required_symbol(bs, nb, "sram_stage_start");
+	se = required_symbol(bs, nb, "sram_stage_end");
+	dstart = required_symbol(bs, nb, "ddr_stage_start");
+	dend = required_symbol(bs, nb, "ddr_stage_end");
+	if (base != 0x80009000u || required_symbol(bs, nb, "_start") != base ||
+	    cb != 0x9fa38000u || required_symbol(cs, nc, "_start") != cb ||
+	    check < base || cc < cb ||
+	    lookup_symbol(bs, nb, "chainloader_flash_tcboot", &unused)) {
+		fprintf(stderr, "econet-image: invalid bootext entry or bootstrap symbols\n");
+		goto out;
+	}
+	if (!chainloader_crc_valid(&outer, check - base) ||
+	    !chainloader_crc_valid(&chain, cc - cb)) {
+		fprintf(stderr, "econet-image: bootext CRC table or image length invalid\n");
+		goto out;
+	}
+	if (!en751221_layout_valid(required_symbol(ds, nd, "start"),
+				   required_symbol(ds, nd, "_end"),
+				   required_symbol(cs, nc, "__image_end"), ddr.len, chain.len)) {
+		fprintf(stderr, "econet-image: bootext runtime exceeds its SRAM layout\n");
+		goto out;
+	}
+	if (se > dstart || !embedded_blob_matches(&outer, check - base, base, ss, se, &chain) ||
+	    !embedded_blob_matches(&outer, check - base, base, dstart, dend, &ddr)) {
+		fprintf(stderr, "econet-image: embedded bootext payload mismatch or overlap\n");
+		goto out;
+	}
+	printf("  CHECK    EN751221 bootext: CRCs, payloads and runtime layout OK (%zu bytes)\n",
+	       outer.len);
+	result = 0;
+out:
+	free(bs); free(ds); free(cs);
+	free_blob(&outer); free_blob(&ddr); free_blob(&chain);
+	return result;
 }
 
 static int validate_uboot(const struct blob *uboot, uint32_t load, bool quiet)
@@ -1210,6 +1322,8 @@ static void usage(FILE *f)
 		"  econet-image bootext --dramc FILE --chainloader FILE --chain-offset OFF\\\n"
 		"\t  --max-size SIZE --output FILE\n"
 		"  econet-image tcboot --soc SOC --image FILE [--output FILE] [--stock FILE]\n"
+		"  econet-image check-en751221-bootext --image FILE --dramc FILE --chainloader FILE\\\n"
+		"\t  --bootstrap-symbols FILE --dramc-symbols FILE --chainloader-symbols FILE\n"
 		"  econet-image selftest\n");
 }
 
@@ -1516,6 +1630,51 @@ static size_t make_test_fit(uint8_t *out, size_t out_len,
 	return total;
 }
 
+static int cmd_check_en751221_bootext(int argc, char **argv)
+{
+	const char *image = NULL, *ddr = NULL, *chain = NULL;
+	const char *bs = NULL, *ds = NULL, *cs = NULL;
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "--image"))
+			image = next_arg(&i, argc, argv, "--image");
+		else if (!strcmp(argv[i], "--dramc"))
+			ddr = next_arg(&i, argc, argv, "--dramc");
+		else if (!strcmp(argv[i], "--chainloader"))
+			chain = next_arg(&i, argc, argv, "--chainloader");
+		else if (!strcmp(argv[i], "--bootstrap-symbols"))
+			bs = next_arg(&i, argc, argv, "--bootstrap-symbols");
+		else if (!strcmp(argv[i], "--dramc-symbols"))
+			ds = next_arg(&i, argc, argv, "--dramc-symbols");
+		else if (!strcmp(argv[i], "--chainloader-symbols"))
+			cs = next_arg(&i, argc, argv, "--chainloader-symbols");
+		else {
+			usage(stderr);
+			return 2;
+		}
+	}
+	if (!image || !ddr || !chain || !bs || !ds || !cs) {
+		usage(stderr);
+		return 2;
+	}
+	return check_en751221_bootext(image, ddr, chain, bs, ds, cs);
+}
+
+static void fixture_chain_crc(uint8_t *image, size_t checked)
+{
+	size_t off;
+
+	for (off = 0; off < checked; off += XMODEM_BLOCK) {
+		size_t len = checked - off;
+
+		if (len > XMODEM_BLOCK)
+			len = XMODEM_BLOCK;
+		put_be32(image + checked + (off / XMODEM_BLOCK) * 4,
+			 crc32_ieee(image + off, len));
+	}
+}
+
 static int selftest_crc(void)
 {
 	static const char s[] = "123456789";
@@ -1525,7 +1684,7 @@ static int selftest_crc(void)
 static int selftest(void)
 {
 	struct flash_fixture f;
-	int passed = 0, total = 11;
+	int passed = 0;
 	uint32_t move_s, move_e, boot2_s, boot2_e, loader_s, loader_e, ddr_s, ddr_e;
 
 #define TEST(cond, name) do { \
@@ -1643,7 +1802,78 @@ static int selftest(void)
 		free_blob(&prepared);
 	}
 
-	printf("1..%d\n", total);
+	{
+		uint8_t inner[1536] = { 0 }, ddr_data[1024] = { 0 };
+		uint8_t outer[3968] = { 0 };
+		struct blob chain = { inner, sizeof(inner) }, ddr = { ddr_data, sizeof(ddr_data) };
+		struct blob boot = { outer, sizeof(outer) };
+		const size_t checked = 128 + sizeof(inner) + sizeof(ddr_data);
+		const uint32_t base = 0x80009000u, ss = base + 128;
+		const uint32_t se = ss + sizeof(inner), de = se + sizeof(ddr_data);
+		size_t i;
+
+		for (i = 0; i < 129; i++)
+			inner[i] = (uint8_t)(i * 17 + 3);
+		fixture_chain_crc(inner, 129);
+		memcpy(outer + 128, inner, sizeof(inner));
+		memcpy(outer + 128 + sizeof(inner), ddr_data, sizeof(ddr_data));
+		fixture_chain_crc(outer, checked);
+		TEST(chainloader_crc_valid(&chain, 129) && chainloader_crc_valid(&boot, checked),
+		     "bootext inner/outer CRC tables, including partial block");
+		TEST(embedded_blob_matches(&boot, checked, base, ss, se, &chain) &&
+		     embedded_blob_matches(&boot, checked, base, se, de, &ddr),
+		     "bootext embedded payloads exact and covered");
+		outer[0] ^= 1;
+		TEST(!chainloader_crc_valid(&boot, checked), "bootext wrapper corruption rejected");
+		outer[0] ^= 1;
+		outer[128] ^= 1;
+		TEST(!chainloader_crc_valid(&boot, checked) &&
+		     !embedded_blob_matches(&boot, checked, base, ss, se, &chain),
+		     "bootext receiver corruption rejected");
+		outer[128] ^= 1;
+		outer[se - base] ^= 1;
+		TEST(!chainloader_crc_valid(&boot, checked) &&
+		     !embedded_blob_matches(&boot, checked, base, se, de, &ddr),
+		     "bootext DDR corruption rejected");
+		outer[se - base] ^= 1;
+		outer[checked - 1] ^= 1;
+		TEST(!chainloader_crc_valid(&boot, checked), "bootext last body byte covered");
+		outer[checked - 1] ^= 1;
+		outer[checked] ^= 1;
+		TEST(!chainloader_crc_valid(&boot, checked), "bootext CRC table corruption rejected");
+		outer[checked] ^= 1;
+		boot.len -= 128;
+		TEST(!chainloader_crc_valid(&boot, checked), "bootext truncated table rejected");
+		boot.len += 127;
+		TEST(!chainloader_crc_valid(&boot, checked), "bootext truncated padding rejected");
+		boot.len++;
+		TEST(!chainloader_crc_valid(&boot, 0) &&
+		     !chainloader_crc_valid(&boot, CRC_TABLE_ENTRIES * XMODEM_BLOCK + 1) &&
+		     !chainloader_crc_valid(&boot, SIZE_MAX), "bootext invalid CRC extents rejected");
+		TEST(!embedded_blob_matches(&boot, checked, base, base - 4, se, &chain) &&
+		     !embedded_blob_matches(&boot, checked, base, se, ss, &chain) &&
+		     !embedded_blob_matches(&boot, checked, base, ss + 1, se + 1, &chain),
+		     "bootext malformed payload addresses rejected");
+		TEST(!embedded_blob_matches(&boot, checked - 1, base, se, de, &ddr) &&
+		     !embedded_blob_matches(&boot, checked, base, se, de - 4, &ddr),
+		     "bootext uncovered or wrong-size payload rejected");
+		TEST(en751221_layout_valid(0x9fa32a80u, 0x9fa38000u, 0x9fa3c000u, 0x5800, 0x4000),
+		     "bootext exact SRAM boundaries accepted");
+		TEST(!en751221_layout_valid(0x9fa32a81u, 0x9fa38000u, 0x9fa3c000u, 0x5800, 0x4000),
+		     "bootext unexpected DDR entry rejected");
+		TEST(!en751221_layout_valid(0x9fa32a80u, 0x9fa38001u, 0x9fa3c000u, 0x5800, 0x4000),
+		     "bootext DDR runtime overlap rejected");
+		TEST(!en751221_layout_valid(0x9fa32a80u, 0x9fa38000u, 0x9fa3c001u, 0x5800, 0x4000),
+		     "bootext receiver runtime overflow rejected");
+		TEST(!en751221_layout_valid(0x9fa32a80u, 0x9fa38000u, 0x9fa3c000u, 0x5801, 0x4000) &&
+		     !en751221_layout_valid(0x9fa32a80u, 0x9fa38000u, 0x9fa3c000u, 0x5800, 0x4001),
+		     "bootext oversized payloads rejected");
+		TEST(!en751221_layout_valid(0x9fa32a80u, 0x9fa32a80u, 0x9fa38000u, 0, 0) &&
+		     !en751221_layout_valid(0x9fa32a80u, 0x9fa38000u, 0x9fa3c000u, 0x280, 0x4000),
+		     "bootext empty runtime or missing DDR entry bytes rejected");
+	}
+
+	printf("1..%d\n", passed);
 #undef TEST
 	return 0;
 }
@@ -1664,6 +1894,8 @@ int main(int argc, char **argv)
 		return cmd_tcboot(argc - 2, argv + 2);
 	if (!strcmp(argv[1], "selftest"))
 		return selftest();
+	if (!strcmp(argv[1], "check-en751221-bootext"))
+		return cmd_check_en751221_bootext(argc - 2, argv + 2);
 
 	usage(stderr);
 	return 2;

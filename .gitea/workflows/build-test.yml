@@ -1,0 +1,122 @@
+name: build-test
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # Fast sanity gate: builds the native host tool and runs the C selftests
+  # covering CRC tables, embedded payload corruption and SRAM boundary
+  # rejection. No cross toolchain needed, so this fails fast on host-tool bugs
+  # before any of the slower cross-compiled SoC builds start.
+  host-test:
+    name: Host tool build + selftest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build host tool and run selftest
+        run: make test
+
+  # Per-SoC firmware build. Endianness/toolchain per SoC come straight from
+  # soc/*.mk: en751221 and en751627 are big-endian (mips-linux-gnu-), en7528
+  # and en7580 are little-endian (mipsel-linux-gnu-). LLVM is skipped for
+  # en7580 because its reconstructed DRAMC uses R_MIPS16_26 .reloc directives
+  # that LLVM's integrated MIPS assembler does not implement (see README).
+  build:
+    name: Build ${{ matrix.soc }} (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    needs: host-test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - soc: en751221
+            toolchain: gnu
+            cross: mips-linux-gnu-
+          - soc: en751221
+            toolchain: llvm
+          - soc: en751627
+            toolchain: gnu
+            cross: mips-linux-gnu-
+          - soc: en751627
+            toolchain: llvm
+          - soc: en7528
+            toolchain: gnu
+            cross: mipsel-linux-gnu-
+          - soc: en7528
+            toolchain: llvm
+          # en7580 DRAMC reconstruction is explicitly WIP upstream; keep it
+          # opt-in (EXPERIMENTAL_SOCS=1) and non-blocking.
+          - soc: en7580
+            toolchain: gnu
+            cross: mipsel-linux-gnu-
+            experimental: true
+    steps:
+      - uses: actions/checkout@v4
+
+      # Package names are for Ubuntu's cross-toolchain packages; adjust if
+      # the runner image differs.
+      - name: Install GNU MIPS cross toolchain
+        if: matrix.toolchain == 'gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-mips-linux-gnu binutils-mips-linux-gnu \
+            gcc-mipsel-linux-gnu binutils-mipsel-linux-gnu
+
+      # en7580's DRAMC stage builds with a separate mips64 GNU toolchain
+      # (soc/en7580.mk: SOC_GNU_CROSS_COMPILE=mips64-linux-gnu-) regardless of
+      # the mipsel- CROSS_COMPILE used for the rest of that SoC's build.
+      - name: Install mips64 GNU toolchain (en7580 DRAMC payload)
+        if: matrix.soc == 'en7580' && matrix.toolchain == 'gnu'
+        run: |
+          sudo apt-get install -y gcc-mips64-linux-gnuabi64 binutils-mips64-linux-gnuabi64
+
+      - name: Install LLVM/Clang
+        if: matrix.toolchain == 'llvm'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+
+      - name: Build ${{ matrix.soc }}
+        continue-on-error: ${{ matrix.experimental == true }}
+        run: |
+          if [ "${{ matrix.toolchain }}" = "llvm" ]; then
+            make LLVM=1 EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}
+          else
+            make CROSS_COMPILE=${{ matrix.cross }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}
+          fi
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.soc }}-${{ matrix.toolchain }}
+          path: out/${{ matrix.soc }}/
+          if-no-files-found: ignore
+
+  # Verifies the composed en751221 bootext image (DRAMC + SRAM XMODEM
+  # receiver + bootstrap) and its linker symbols with the host tool's
+  # check-en751221-bootext subcommand, per README's documented check step.
+  # This only inspects artifacts already built above; it does not run
+  # firmware or replace a BootROM hardware test.
+  bootext-check:
+    name: EN751221 bootext image/layout check
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GNU MIPS cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mips-linux-gnu binutils-mips-linux-gnu
+
+      - name: Build en751221
+        run: make CROSS_COMPILE=mips-linux-gnu- en751221
+
+      - name: Check bootext image and symbols
+        run: make en751221-bootext-check CROSS_COMPILE=mips-linux-gnu-

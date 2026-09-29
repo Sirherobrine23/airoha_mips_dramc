@@ -16,7 +16,7 @@ SECTIONS {
 	. = ALIGN(4);
 	.spram : { __spram_start = .; *(.spram) __spram_end = .; }
 	ASSERT(__spram_end < 0xbfc0ff00, "stages overlap manufacturing data")
-	/* No legacy compressed bootram: the loader reads U-Boot at 128 KiB. */
+	/* No legacy compressed bootram: the loader reads the ECNT payload at 128 KiB. */
 	__boot_start = 0xbfc20000;
 	__boot_end = 0xbfc20000;
 	/DISCARD/ : { *(.reginfo) *(.MIPS.abiflags) *(.pdr) *(.comment) *(.eh_frame) }

@@ -1,89 +1,50 @@
 # SPDX-License-Identifier: GPL-2.0+
-# Build the XMODEM recovery/bootext chainloader.
+# BootROM/XMODEM recovery chainloader builder.
 
-SRCTREE ?= $(abspath $(CURDIR)/..)
-OUT ?= $(SRCTREE)/out/$(SOC)
-SOC ?=
-UBOOT_LOAD_ADDR ?= 0x81000000
-HOST_TOOL ?= $(SRCTREE)/out/host/econet-image
-
-ifeq ($(SOC),en751221)
-ENDIAN := -EB
-EMULATION := elf32btsmip
-CROSS_DEFAULT := mips-linux-gnu-
-CHAINLOADER_BASE ?= 0x80009000
-SOC_CPPFLAGS :=
-SFC_CPPFLAGS := -DECONET_NAND_PAGE_SHIFT=11 -DECONET_SFC_TINY_WRITE_ONLY
-else ifeq ($(SOC),en7528)
-ENDIAN := -EL
-EMULATION := elf32ltsmip
-CROSS_DEFAULT := mipsel-linux-gnu-
-CHAINLOADER_BASE ?= 0x9fa35000
-SOC_CPPFLAGS := -DCHAINLOADER_EN7528
-SFC_CPPFLAGS := -DECONET_SFC_TINY_WRITE_ONLY
-else
-$(error recovery/bootext chainloader is not supported for $(SOC))
-endif
-
-CROSS_COMPILE ?= $(CROSS_DEFAULT)
-TOOL_CC ?= $(CROSS_COMPILE)gcc
-TOOL_LD ?= $(CROSS_COMPILE)ld
-TOOL_OBJCOPY ?= $(CROSS_COMPILE)objcopy
-TOOL_NM ?= $(CROSS_COMPILE)nm
-TOOL_CC_TARGET ?=
-CHAINLOADER_CPPFLAGS ?=
-SIZE_OPT ?= -Os
-
-BUILD := $(OUT)/.recovery-chainloader
-OUTPUT ?= $(OUT)/$(SOC)-recovery-chainloader.bin
-CFLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls -fno-pic \
-	-fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(SIZE_OPT) -G0 -Wall \
-	$(SOC_CPPFLAGS) $(CHAINLOADER_CPPFLAGS)
-OBJS := $(BUILD)/start.o $(BUILD)/uart.o $(BUILD)/chainloader.o $(BUILD)/flash-write.o $(BUILD)/early_sfc.o
-
-.PHONY: all clean
-all: $(OUTPUT)
-
-$(OBJS): $(SRCTREE)/chainloader/Makefile
-
-$(BUILD):
-	@mkdir -p $@
-
-$(BUILD)/start.o: $(SRCTREE)/chainloader/start.S | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include -c $< -o $@
-
-$(BUILD)/uart.o: $(SRCTREE)/chainloader/uart.c $(SRCTREE)/chainloader/chainloader.h $(SRCTREE)/include/uart.h | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include \
-		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
-
-$(BUILD)/chainloader.o: $(SRCTREE)/chainloader/chainloader.c $(SRCTREE)/chainloader/chainloader.h | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include \
-		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
-
-$(BUILD)/flash-write.o: $(SRCTREE)/chainloader/flash-write.c $(SRCTREE)/chainloader/chainloader.h $(SRCTREE)/flash/sfc.h | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/flash \
-		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) -c $< -o $@
-
-$(BUILD)/early_sfc.o: $(SRCTREE)/flash/early_sfc.c $(SRCTREE)/flash/loader.h | $(BUILD)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS) $(SFC_CPPFLAGS) -I$(SRCTREE)/include -I$(SRCTREE)/flash \
-		-c $< -o $@
-
-$(BUILD)/chainloader.elf: $(OBJS) $(SRCTREE)/chainloader/chainloader.lds
-	$(TOOL_LD) $(ENDIAN) -m $(EMULATION) --defsym CHAINLOADER_BASE=$(CHAINLOADER_BASE) \
-		-T $(SRCTREE)/chainloader/chainloader.lds \
-		-Map $(BUILD)/chainloader.map -o $@ $(OBJS)
-
-$(OUTPUT): $(BUILD)/chainloader.elf $(HOST_TOOL)
-	@mkdir -p $(dir $@)
-	$(TOOL_OBJCOPY) -O binary $< $(BUILD)/chainloader.raw.bin
+# Compile a configured recovery receiver into RECOVERY_OUTPUT.
+define chainload/compile
+	@rm -rf "$(RECOVERY_BUILD)"
+	@mkdir -p "$(RECOVERY_BUILD)" "$(dir $(RECOVERY_OUTPUT))"
+	@printf '  CC         %s\n' start.o
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(SIZE_OPT) -G0 -Wall \
+		$(CHAINLOADER_SOC_CPPFLAGS) $(CHAINLOADER_CPPFLAGS) -I"$(SRCTREE)/include" \
+		-c "$(SRCTREE)/chainloader/start.S" -o "$(RECOVERY_BUILD)/start.o"
+	@printf '  CC         %s\n' uart.o
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(SIZE_OPT) -G0 -Wall \
+		$(CHAINLOADER_SOC_CPPFLAGS) $(CHAINLOADER_CPPFLAGS) -DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) \
+		-I"$(SRCTREE)/include" -c "$(SRCTREE)/chainloader/uart.c" -o "$(RECOVERY_BUILD)/uart.o"
+	@printf '  CC         %s\n' chainloader.o
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(SIZE_OPT) -G0 -Wall \
+		$(CHAINLOADER_SOC_CPPFLAGS) $(CHAINLOADER_CPPFLAGS) -DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) \
+		-I"$(SRCTREE)/include" -c "$(SRCTREE)/chainloader/chainloader.c" -o "$(RECOVERY_BUILD)/chainloader.o"
+	@printf '  CC         %s\n' flash-write.o
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(SIZE_OPT) -G0 -Wall \
+		$(CHAINLOADER_SOC_CPPFLAGS) $(CHAINLOADER_CPPFLAGS) -DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) \
+		-I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		-c "$(SRCTREE)/chainloader/flash-write.c" -o "$(RECOVERY_BUILD)/flash-write.o"
+	@printf '  CC         %s\n' early_sfc.o
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(SIZE_OPT) -G0 -Wall \
+		$(CHAINLOADER_SOC_CPPFLAGS) $(CHAINLOADER_CPPFLAGS) $(CHAINLOADER_SFC_CPPFLAGS) \
+		-I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		-c "$(SRCTREE)/flash/early_sfc.c" -o "$(RECOVERY_BUILD)/early_sfc.o"
+	@printf '  LD         %s\n' "$(RECOVERY_BUILD)/chainloader.elf"
+	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) --defsym CHAINLOADER_BASE=$(CHAINLOADER_BASE) \
+		-T "$(SRCTREE)/chainloader/chainloader.lds" -Map "$(RECOVERY_BUILD)/chainloader.map" \
+		-o "$(RECOVERY_BUILD)/chainloader.elf" \
+		"$(RECOVERY_BUILD)/start.o" "$(RECOVERY_BUILD)/uart.o" \
+		"$(RECOVERY_BUILD)/chainloader.o" "$(RECOVERY_BUILD)/flash-write.o" "$(RECOVERY_BUILD)/early_sfc.o"
+	$(TOOL_OBJCOPY) -O binary "$(RECOVERY_BUILD)/chainloader.elf" "$(RECOVERY_BUILD)/chainloader.raw.bin"
 	@set -eu; \
-		start_hex=`$(TOOL_NM) -n $< | awk '$$3 == "__image_start" { print $$1; exit }'`; \
-		check_hex=`$(TOOL_NM) -n $< | awk '$$3 == "__chk_start" { print $$1; exit }'`; \
+		start_hex=`$(TOOL_NM) -n "$(RECOVERY_BUILD)/chainloader.elf" | awk '$$3 == "__image_start" { print $$1; exit }'`; \
+		check_hex=`$(TOOL_NM) -n "$(RECOVERY_BUILD)/chainloader.elf" | awk '$$3 == "__chk_start" { print $$1; exit }'`; \
 		test -n "$$start_hex" -a -n "$$check_hex"; \
 		check_off=$$((0x$$check_hex - 0x$$start_hex)); \
-		$(HOST_TOOL) chainloader --image $(BUILD)/chainloader.raw.bin \
-			--check-offset "$$check_off" --output $@.tmp
-	@mv -f $@.tmp $@
-
-clean:
-	@rm -rf $(BUILD) $(OUTPUT)
+		"$(HOST_TOOL)" chainloader --image "$(RECOVERY_BUILD)/chainloader.raw.bin" \
+			--check-offset "$$check_off" --output "$(RECOVERY_OUTPUT).tmp"; \
+		mv -f "$(RECOVERY_OUTPUT).tmp" "$(RECOVERY_OUTPUT)"
+endef

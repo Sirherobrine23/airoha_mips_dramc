@@ -68,7 +68,7 @@ jobs:
             gcc-mipsel-linux-gnu binutils-mipsel-linux-gnu
 
       # en7580's DRAMC stage builds with a separate mips64 GNU toolchain
-      # (soc/en7580.mk: SOC_GNU_CROSS_COMPILE=mips64-linux-gnu-) regardless of
+      # (images/en7580.mk: SOC_GNU_CROSS_COMPILE=mips64-linux-gnu-) regardless of
       # the mipsel- CROSS_COMPILE used for the rest of that SoC's build.
       - name: Install mips64 GNU toolchain (en7580 DRAMC payload)
         if: matrix.soc == 'en7580' && matrix.toolchain == 'gnu'

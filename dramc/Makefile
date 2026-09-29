@@ -1,166 +1,76 @@
 # SPDX-License-Identifier: GPL-2.0+
-# Generic standalone DRAM initialization/calibration build framework.
-#
-# SoC-wide properties live in soc/<soc>.mk.  Source lists and DRAMC-specific
-# quirks live in dramc/<soc>/Makefile.  Keep this file free of per-SoC source
-# lists so adding/changing a DRAMC implementation does not grow a central
-# ifeq ladder.
+# DRAMC builder.  All SoC-specific state is supplied by images/<soc>.mk.
 
-DRAMC_MAKEFILE := $(lastword $(MAKEFILE_LIST))
-SRCTREE ?= $(abspath $(dir $(DRAMC_MAKEFILE))/..)
-OUT ?= $(SRCTREE)/out/$(SOC)
-SOC ?=
-OUTPUT ?= $(OUT)/$(SOC)-dramc.bin
-LLVM ?= 0
-
-SOC_CONFIG := $(SRCTREE)/soc/$(SOC).mk
-ifeq ($(wildcard $(SOC_CONFIG)),)
-$(error unsupported SOC '$(SOC)')
-endif
-include $(SOC_CONFIG)
-
-DRAMC_DIR := $(SRCTREE)/dramc/$(SOC)
-DRAMC_CONFIG := $(DRAMC_DIR)/Makefile
-ifeq ($(wildcard $(DRAMC_CONFIG)),)
-$(error missing DRAMC description '$(DRAMC_CONFIG)')
-endif
-include $(DRAMC_CONFIG)
-
-ifeq ($(SOC_ENDIAN),big)
-ENDIAN := -EB
-else ifeq ($(SOC_ENDIAN),little)
-ENDIAN := -EL
-else
-$(error unsupported SOC_ENDIAN '$(SOC_ENDIAN)' for $(SOC))
-endif
-
-CROSS_COMPILE ?= $(SOC_CROSS_COMPILE)
-ifeq ($(LLVM),1)
-TOOL_CC ?= clang
-TOOL_LD ?= ld.lld
-TOOL_OBJCOPY ?= llvm-objcopy
-TOOL_CC_TARGET ?= --target=$(SOC_TRIPLE)
-else
-TOOL_CC ?= $(CROSS_COMPILE)gcc
-TOOL_LD ?= $(CROSS_COMPILE)ld
-TOOL_OBJCOPY ?= $(CROSS_COMPILE)objcopy
-TOOL_CC_TARGET ?=
-endif
-DDR_CPPFLAGS ?=
-SIZE_OPT ?= -Os
-
-# Used only by the EN7580 reconstructed MIPS16 sources when LLVM=1.  A
-# mips64-linux-gnu gcc can emit both -EB and -EL O32 objects, so one fallback
-# toolchain is enough for the four SoCs supported by this repository.
-GNU_CROSS_COMPILE ?= $(if $(SOC_GNU_CROSS_COMPILE),$(SOC_GNU_CROSS_COMPILE),mips64-linux-gnu-)
-GNU_CC ?= $(GNU_CROSS_COMPILE)gcc
-
-BUILD := $(OUT)/.dramc
-DRAMC_TARGET_OBJS := $(addprefix $(BUILD)/,$(DRAMC_OBJS))
-DRAMC_GNU_ASM_TARGETS := $(addprefix $(BUILD)/,$(DRAMC_GNU_ASM_OBJS))
-
-CFLAGS := $(ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
-	-fno-pic -fno-pie -ffreestanding -fno-builtin $(SIZE_OPT) -G0
-CFLAGS_C := $(CFLAGS) -fomit-frame-pointer -fno-stack-protector $(DDR_CPPFLAGS)
-ASFLAGS := $(CFLAGS) -D__ASSEMBLY__ $(DDR_CPPFLAGS)
-CPPFLAGS := -I$(SRCTREE)/include $(DRAMC_INCLUDES)
-
-define filechk_version.h
-	(echo \#define PLAIN_VERSION \"$(PLAIN_VERSION)\"; \
-	echo \#define CC_VERSION_STRING \"$$(LC_ALL=C $(TOOL_CC) --version | head -n 1)\"; \
-	echo \#define LD_VERSION_STRING \"$$(LC_ALL=C $(TOOL_LD) --version | head -n 1)\"; )
+# Compile a configured DRAMC payload into DRAMC_OUTPUT.
+define dramc/compile
+	@rm -rf "$(DRAMC_BUILD)"
+	@mkdir -p "$(DRAMC_BUILD)/include" "$(dir $(DRAMC_OUTPUT))"
+	$(if $(strip $(DRAMC_PREBUILT)),$(call dramc/compile/prebuilt),$(call dramc/compile/source))
 endef
 
-# Keep command recipes centralized, similar to OpenWrt's Build/* helpers.
-define Build/Compile/C
-	$(call filechk_version.h) > $(SRCTREE)/include/tmp_version.h
-	@mkdir -p $(dir $@)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(CFLAGS_C) $(CPPFLAGS) -c $< -o $@
-endef
-
-define Build/Compile/ASM
-	@mkdir -p $(dir $@)
-	$(TOOL_CC) $(TOOL_CC_TARGET) $(ASFLAGS) $(CPPFLAGS) \
-		-x assembler-with-cpp -c $< -o $@
-endef
-
-define Build/Compile/GNUASM
-	@mkdir -p $(dir $@)
-	$(GNU_CC) $(ASFLAGS) $(CPPFLAGS) -x assembler-with-cpp -c $< -o $@
-endef
-
-define Build/Link
-	$(TOOL_LD) $(ENDIAN) -m $(SOC_LD_EMULATION) -T $(DRAMC_LDS) \
-		-Map $(BUILD)/dramc.map -o $@ $(DRAMC_TARGET_OBJS)
-endef
-
-define Build/Objcopy
-	@mkdir -p $(dir $@)
-	$(TOOL_OBJCOPY) -O binary $< $@.tmp
-	@mv -f $@.tmp $@
-endef
-
-define Build/CopyPrebuilt
-	@size=$$(wc -c < "$<"); \
+define dramc/compile/prebuilt
+	@size=$$(wc -c < "$(DRAMC_PREBUILT)"); \
 		test "$$size" -eq "$(DRAMC_PREBUILT_SIZE)" || { \
-			echo "error: $(SOC) DRAMC payload has size $$size, expected $(DRAMC_PREBUILT_SIZE)" >&2; \
+			echo "error: $(DEVICE_SOC) DRAMC payload has size $$size, expected $(DRAMC_PREBUILT_SIZE)" >&2; \
 			exit 1; \
-		}
-	@mkdir -p $(dir $@)
-	@cp "$<" "$@.tmp"
-	@mv -f "$@.tmp" "$@"
+		}; \
+		cp "$(DRAMC_PREBUILT)" "$(DRAMC_OUTPUT).tmp"; \
+		mv -f "$(DRAMC_OUTPUT).tmp" "$(DRAMC_OUTPUT)"
 endef
 
-.PHONY: all clean check-relocs
-all: $(OUTPUT)
-
-$(DRAMC_TARGET_OBJS): $(DRAMC_MAKEFILE) $(SOC_CONFIG) $(DRAMC_CONFIG)
-
-$(BUILD):
-	@mkdir -p $@
-
-ifdef DRAMC_PREBUILT
-
-$(OUTPUT): $(DRAMC_PREBUILT)
-	$(Build/CopyPrebuilt)
-
-else
-
-# Generic rules preserve subdirectories in object names, e.g.
-# readable/foo.c -> $(BUILD)/readable/foo.o.
-$(BUILD)/%.o: $(DRAMC_DIR)/%.c
-	$(Build/Compile/C)
-
-$(BUILD)/%.o: $(DRAMC_DIR)/%.S
-	$(Build/Compile/ASM)
-
-ifeq ($(DRAMC_CHECK_RELOCS),y)
-check-relocs:
-	@if grep -nE '\.reloc.*,[[:space:]]*$$' $(DRAMC_RELOC_SRCS); then \
-		echo "error: DRAMC source contains unresolved section relocations" >&2; \
-		exit 1; \
-	fi
-else
-check-relocs:
-	@:
-endif
-
-# Override only the reconstructed EN7580 assembly objects under LLVM.  LLD
-# can consume the resulting GNU objects; only LLVM IAS lacks R_MIPS16_26.
-ifeq ($(LLVM),1)
-ifneq ($(strip $(DRAMC_GNU_ASM_TARGETS)),)
-$(DRAMC_GNU_ASM_TARGETS): $(BUILD)/%.o: $(DRAMC_DIR)/%.S | check-relocs
-	$(Build/Compile/GNUASM)
-endif
-endif
-
-$(BUILD)/dramc.elf: $(DRAMC_TARGET_OBJS) $(DRAMC_LDS) | check-relocs
-	$(Build/Link)
-
-$(OUTPUT): $(BUILD)/dramc.elf
-	$(Build/Objcopy)
-
-endif
-
-clean:
-	@rm -rf $(BUILD) $(OUTPUT)
+define dramc/compile/source
+	@set -eu; \
+		if [ "$(DRAMC_CHECK_RELOCS)" = y ]; then \
+			if grep -nE '\.reloc.*,[[:space:]]*$$' $(DRAMC_RELOC_SRCS); then \
+				echo "error: DRAMC source contains unresolved section relocations" >&2; \
+				exit 1; \
+			fi; \
+		fi; \
+		{ \
+			printf '#define PLAIN_VERSION "%s"\n' '$(PLAIN_VERSION)'; \
+			printf '#define CC_VERSION_STRING "%s"\n' "$$(LC_ALL=C $(TOOL_CC) --version | head -n 1)"; \
+			printf '#define LD_VERSION_STRING "%s"\n' "$$(LC_ALL=C $(TOOL_LD) --version | head -n 1)"; \
+		} > "$(DRAMC_BUILD)/include/tmp_version.h"; \
+		for obj in $(DRAMC_OBJS); do \
+			stem=$${obj%.o}; \
+			dst="$(DRAMC_BUILD)/$$obj"; \
+			mkdir -p "$$(dirname "$$dst")"; \
+			if [ -f "$(DRAMC_DIR)/$$stem.c" ]; then \
+				printf '  CC         %s\n' "$$obj"; \
+				$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+					-fno-pic -fno-pie -ffreestanding -fno-builtin $(SIZE_OPT) -G0 \
+					-fomit-frame-pointer -fno-stack-protector $(DDR_CPPFLAGS) \
+					-I"$(DRAMC_BUILD)/include" -I"$(SRCTREE)/include" $(DRAMC_INCLUDES) \
+					-c "$(DRAMC_DIR)/$$stem.c" -o "$$dst"; \
+			elif [ -f "$(DRAMC_DIR)/$$stem.S" ]; then \
+				printf '  AS         %s\n' "$$obj"; \
+				case " $(DRAMC_GNU_ASM_OBJS) " in \
+					*" $$obj "*) use_gnu=y ;; \
+					*) use_gnu=n ;; \
+				esac; \
+				if [ "$(LLVM)" = 1 ] && [ "$$use_gnu" = y ]; then \
+					$(GNU_CC) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+						-fno-pic -fno-pie -ffreestanding -fno-builtin $(SIZE_OPT) -G0 \
+						-D__ASSEMBLY__ $(DDR_CPPFLAGS) -I"$(DRAMC_BUILD)/include" \
+						-I"$(SRCTREE)/include" $(DRAMC_INCLUDES) -x assembler-with-cpp \
+						-c "$(DRAMC_DIR)/$$stem.S" -o "$$dst"; \
+				else \
+					$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+						-fno-pic -fno-pie -ffreestanding -fno-builtin $(SIZE_OPT) -G0 \
+						-D__ASSEMBLY__ $(DDR_CPPFLAGS) -I"$(DRAMC_BUILD)/include" \
+						-I"$(SRCTREE)/include" $(DRAMC_INCLUDES) -x assembler-with-cpp \
+						-c "$(DRAMC_DIR)/$$stem.S" -o "$$dst"; \
+				fi; \
+			else \
+				echo "error: missing DRAMC source for $$obj" >&2; \
+				exit 1; \
+			fi; \
+		done
+	@printf '  LD         %s\n' "$(DRAMC_BUILD)/dramc.elf"
+	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(DRAMC_LDS)" \
+		-Map "$(DRAMC_BUILD)/dramc.map" -o "$(DRAMC_BUILD)/dramc.elf" \
+		$(addprefix $(DRAMC_BUILD)/,$(DRAMC_OBJS))
+	@printf '  OBJCOPY    %s\n' "$(DRAMC_OUTPUT)"
+	$(TOOL_OBJCOPY) -O binary "$(DRAMC_BUILD)/dramc.elf" "$(DRAMC_OUTPUT).tmp"
+	@mv -f "$(DRAMC_OUTPUT).tmp" "$(DRAMC_OUTPUT)"
+endef

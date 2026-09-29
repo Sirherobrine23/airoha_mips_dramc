@@ -2,9 +2,9 @@
 
 Standalone early-boot sources for Airoha/EcoNet MIPS SoCs.  The repository
 contains the DRAM controller initialization/calibration stages and the small
-post-DRAM flash loader used to chainload U-Boot without keeping those sources in
-the U-Boot tree. The packaging path accepts raw `u-boot.bin`, legacy
-`u-boot.img`, and FIT images.
+post-DRAM flash loader used to chainload an opaque payload without keeping those
+sources in the bootloader tree. Final payload selection and packaging are kept
+outside the firmware build (for example in the OpenWrt image pipeline).
 
 ## Supported SoCs
 
@@ -15,12 +15,29 @@ the U-Boot tree. The packaging path accepts raw `u-boot.bin`, legacy
 
 ## Build
 
-The normal interface is deliberately per-SoC.
+The normal interface is deliberately per-SoC. The top-level `Makefile` is only
+the build dispatcher: it defines global inputs, includes the builders and then
+registers the device contexts from `images/*.mk`. SoC-specific state belongs in
+`images/<soc>.mk`; the component Makefiles only expose builder macros such as
+`dramc/compile`, `flash/compile`, `chainload/compile` and `bootext/compile`.
 
-Build every SoC:
+Before each `Device/<soc>` is evaluated, `images/Makefile` resets every
+context-owned variable with `Device/Init`. The resulting context (including the
+toolchain selected by `compiler/prepare`) is then snapshotted as target-specific
+variables before the next device is evaluated. This allows multiple SoCs and
+secondary contexts such as bootext DRAMC/chainloader to coexist in the same
+parallel make invocation without inheriting state from the previous device.
+
+Build all default SoCs:
 
 ```sh
 make all
+```
+
+Include non-default experimental SoCs in `all`:
+
+```sh
+make EXPERIMENTAL_SOCS=1 all
 ```
 
 Build only one SoC:
@@ -170,44 +187,45 @@ The current EN7580 reconstruction uses `R_MIPS16_26` `.reloc` directives which
 LLVM's integrated MIPS assembler does not implement; build that DRAMC payload
 with GNU binutils for now.  Its standalone chainload stage itself is LLVM-safe.
 
-## Optional `tcboot.bin` packaging
+## Standalone `tcboot.bin`
 
-The default `make <soc>` does **not** depend on a U-Boot source/build tree.
-When a complete flash image is needed, point the optional packaging target at
-one of the supported U-Boot formats:
+The TCBoot build is intentionally independent from U-Boot (or any other final
+payload). Build the boot component with:
 
 ```sh
-# Raw U-Boot binary. Preferred for a minimal second stage.
-make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.bin
-
-# Legacy uImage. Kept on flash as a legacy image for compatibility.
-make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.img
-
-# FIT image. firmware/loadables are honored; U-Boot RAM FITs using
-# config->kernel are also supported.
-make en751221-tcboot UBOOT_IMAGE=/path/to/u-boot.itb
+make en751221-tcboot
+make en751627-tcboot
+make en7528-tcboot
+# or
+make tcboot SOC=en7528
 ```
 
-The same applies to `en751627-tcboot` and `en7528-tcboot`, or to the generic
-form `make tcboot SOC=<soc> UBOOT_IMAGE=<file>`.  The on-flash loader now
-autodetects the image magic directly:
+The result is `out/<soc>/tcboot.bin`, a 128 KiB base image ending at flash
+offset `0x20000`. It contains the BootROM stages, DRAM calibration payload and
+the generic post-DRAM flash loader, but no U-Boot/FIT/kernel payload.
 
-- raw `u-boot.bin` is wrapped by the host tool in the small ECNT descriptor
-  (magic `ECNT`, exact size, load/entry and CRC32);
-- legacy `u-boot.img` is preserved as a legacy uImage and its header/data CRCs
-  are checked by the flash loader;
-- FIT is preserved as FIT.  The flash loader parses the selected
-  `firmware`/`loadables` image directly.  U-Boot RAM FITs using
-  `config->kernel` remain supported as a compatibility layout.
+The loader understands only the small ECNT payload descriptor. It does not
+parse uImage, FIT or ELF. The image builder chooses an arbitrary payload, load
+address and entry address, and wraps those opaque bytes before appending them:
 
-For a normal FIT `firmware`/`loadables` image, load/entry metadata is honored.
-For the compatibility `kernel` layout, the SoC target load address is
-authoritative because old SPL-oriented ITS files may carry unrelated
-load/entry metadata.  FIT hashes are not yet verified by the minimal flash
-loader; use legacy/ECNT when CRC verification at this stage is required.  The
-linked `u-boot` ELF is intentionally rejected.
+```sh
+out/host/econet-image tcboot \
+    --boot out/en7528/tcboot.bin \
+    --payload /path/to/payload.bin \
+    --load 0x81000000 \
+    --entry 0x81000000 \
+    --output /tmp/tcboot-with-payload.bin
+```
 
-The result is `out/<soc>/tcboot.bin`. EN7580 TCBoot packaging remains WIP.
+`econet-image tcboot` updates the TCBoot payload bounds in the BootROM header,
+recalculates its CRC, and appends an ECNT descriptor plus the payload. It emits
+only the used bytes; an outer image pipeline such as OpenWrt can pad the
+artifact to the flash partition size afterwards. This keeps U-Boot/FIP/FIT
+selection entirely in the OpenWrt image recipe rather than in this build.
+
+The descriptor and payload must fit in the 1 MiB replacement bootloader region.
+The current loader accepts payload destinations in `0x81000000..0x81ffffff`;
+`entry` may differ from `load` but must point inside the loaded payload.
 
 ## EN7528 `bootext.bin`
 
@@ -242,11 +260,13 @@ The image finalizers are built as a native C utility at
 packing or tests.  Its subcommands replace the former `tools/*.py` helpers:
 
 ```text
-econet-image chainloader  # CRC table + XMODEM padding
-econet-image flash        # build the 1 MiB TCBoot-compatible image
-econet-image tcboot       # finalize legacy TCBoot/Binman images
-econet-image bootext      # compose EN7528 DRAMC + SRAM chainloader
-econet-image selftest     # host-side regression tests
+econet-image chainloader      # CRC table + XMODEM padding
+econet-image tcboot-base      # build payload-free 128 KiB TCBoot component
+econet-image tcboot           # attach an opaque payload + ECNT descriptor
+econet-image flash            # legacy one-shot image packer
+econet-image tcboot-finalize  # finalize legacy TCBoot/Binman images
+econet-image bootext          # compose EN7528 DRAMC + SRAM chainloader
+econet-image selftest         # host-side regression tests
 ```
 
 The normal `make <soc>` targets build the host utility automatically.
@@ -259,14 +279,19 @@ Host-side image-layout tests do not require a MIPS toolchain:
 make test
 ```
 
-## Layout
+## Build system layout
 
-- `dramc/<soc>/` — DRAM initialization/calibration source or preserved payload.
-- `dramc/Makefile` — standalone DRAMC builder for all supported SoCs.
-- `flash/` — flash reader, TCBoot startup stages and Makefile for both `chainload` and `tcboot`.
-- `chainloader/` — SRAM/DRAM XMODEM chainloader shared by EN751221 recovery and EN7528 bootext.
-- `bootext/` — EN7528 FE-SRAM composite-image builder.
+The root `Makefile` is the public entry point.  A `make <soc>` invocation starts
+one isolated internal build instance for that SoC, then includes the component
+fragments below.  This keeps per-SoC variables from leaking into other targets
+while following the same metadata + shared build-helper model used by OpenWrt.
+
+- `base/compiler.mk` — shared GNU/LLVM toolchain selection and endian setup.
+- `soc/Makefile`, `soc/*.mk` — SoC registry, capabilities and toolchain metadata.
+- `dramc/<soc>/` — DRAM initialization/calibration source or preserved payload; each per-SoC `Makefile` only describes its DRAMC inputs/quirks.
+- `dramc/Makefile` — DRAMC build fragment and common compile/link helpers.
+- `flash/Makefile` — post-DRAM `chainload` and optional `tcboot` build fragment.
+- `chainloader/Makefile` — SRAM/DRAM XMODEM recovery-chainloader build fragment.
+- `bootext/Makefile`, `bootext/*.mk` — bootext build fragment plus per-SoC SRAM/layout metadata.
 - `include/` — standalone early-boot headers; no U-Boot include tree required.
-- `soc/*.mk` — per-SoC toolchain/capability metadata.
-- `tools/` — only the native `econet-image.c` host image tool; the build path has no shell/Python helper scripts.
-- `tpl/`, `spl/` — older U-Boot-integrated early-boot path retained as reference.
+- `tools/` — the native `econet-image.c` host image tool; the build path has no shell/Python helper scripts.

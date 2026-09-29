@@ -8,7 +8,9 @@
  *	   --uboot FILE --load ADDR --output FILE [--minfo FILE]
  *   econet-image bootext --dramc FILE --chainloader FILE --chain-offset OFF \
  *	   --max-size SIZE --output FILE
- *   econet-image tcboot --soc SOC --image FILE [--output FILE] [--stock FILE]
+ *   econet-image tcboot-base --soc SOC --stages FILE --symbols FILE --output FILE
+ *   econet-image tcboot --boot FILE --payload FILE --load ADDR --entry ADDR --output FILE
+ *   econet-image tcboot-finalize --soc SOC --image FILE [--output FILE] [--stock FILE]
  *   econet-image selftest
  *   econet-image check-en751221-bootext (images + nm symbol listings)
  */
@@ -159,6 +161,12 @@ static uint32_t get_be32(const uint8_t *p)
 {
 	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
 		   ((uint32_t)p[2] << 8) | p[3];
+}
+
+static uint32_t get_le32(const uint8_t *p)
+{
+	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+		   ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
 static void put_be32(uint8_t *p, uint32_t v)
@@ -1011,7 +1019,7 @@ static struct blob make_ecnt(const uint8_t *payload, size_t payload_len,
 
 	if (!payload_len || payload_len > UINT32_MAX ||
 		payload_len + ECONET_BOOT_HEADER_SIZE > FLASH_LIMIT - FLASH_PAYLOAD)
-		die("raw/FIT U-Boot payload is too large");
+		die("payload is too large");
 	out.len = ECONET_BOOT_HEADER_SIZE + payload_len;
 	out.data = calloc(1, out.len);
 	if (!out.data)
@@ -1047,12 +1055,10 @@ static int prepare_uboot(const struct blob *input, uint32_t default_load,
 	if (magic == IH_MAGIC) {
 		if (validate_uboot(input, default_load, false) < 0)
 			return -1;
-		prepared->data = malloc(input->len);
-		if (!prepared->data)
-			die("out of memory");
-		memcpy(prepared->data, input->data, input->len);
-		prepared->len = input->len;
-		*format = "legacy";
+		*prepared = make_ecnt(input->data + IH_HEADER_SIZE,
+				      input->len - IH_HEADER_SIZE,
+				      default_load, default_load);
+		*format = "legacy->ecnt";
 		return 0;
 	}
 	if (magic == FDT_MAGIC) {
@@ -1226,6 +1232,208 @@ out:
 	return ret;
 }
 
+static int pack_tcboot_base(const char *soc, const char *stages_path,
+				    const char *symbols_path, const char *minfo_path,
+				    const char *output)
+{
+	struct blob stages = read_file(stages_path);
+	struct blob minfo = { 0 };
+	struct symbol *syms = NULL;
+	size_t nsyms = 0;
+	uint8_t *image = NULL;
+	bool big_endian;
+	uint32_t move_s, move_e, boot2_s, boot2_e;
+	uint32_t loader_s, loader_e, ddr_s, ddr_e;
+	int ret = 1;
+
+	if (!strcmp(soc, "en751221") || !strcmp(soc, "en751627"))
+		big_endian = true;
+	else if (!strcmp(soc, "en7528"))
+		big_endian = false;
+	else {
+		fprintf(stderr, "econet-image: unsupported TCBoot SoC: %s\n", soc);
+		goto out;
+	}
+
+	if (stages.len >= FLASH_MINFO || stages.len < 0x60) {
+		fprintf(stderr, "econet-image: initial stages overlap mi.conf or are incomplete\n");
+		goto out;
+	}
+
+	read_symbols(symbols_path, &syms, &nsyms);
+	if (stage_interval(syms, nsyms, "move_data", stages.len, &move_s, &move_e) < 0 ||
+		stage_interval(syms, nsyms, "boot2", stages.len, &boot2_s, &boot2_e) < 0 ||
+		stage_interval(syms, nsyms, "lzma", stages.len, &loader_s, &loader_e) < 0 ||
+		stage_interval(syms, nsyms, "spram", stages.len, &ddr_s, &ddr_e) < 0)
+		goto out;
+
+	if (move_e >= 0x800 || !(move_e <= boot2_s && boot2_s < boot2_e &&
+					  boot2_e <= loader_s && loader_s < loader_e &&
+					  loader_e <= ddr_s)) {
+		fprintf(stderr, "econet-image: invalid first-page placement or overlapping stages\n");
+		goto out;
+	}
+
+	if (minfo_path) {
+		minfo = read_file(minfo_path);
+		if (minfo.len != 0x100) {
+			fprintf(stderr, "econet-image: mi.conf must be exactly 256 bytes\n");
+			goto out;
+		}
+	}
+
+	image = malloc(FLASH_PAYLOAD);
+	if (!image)
+		die("out of memory");
+	memset(image, 0xff, FLASH_PAYLOAD);
+	memcpy(image, stages.data, stages.len);
+
+	if (!strcmp(soc, "en751221")) {
+		if (get_be32(image) != 0x0bf00012u ||
+		    memcmp(image + 0x40, "\0\0\0\0\0\0\0\0", 8)) {
+			fprintf(stderr, "econet-image: unexpected EN751221 SDK reset/header layout\n");
+			goto out;
+		}
+		put_be32(image, 0x0bf00010u);
+	} else {
+		memset(image + 8, 0, 0x58);
+	}
+
+#define PUT_WORD(off, val) put_native32(image + (off), (val), big_endian)
+	if (strcmp(soc, "en751221"))
+		PUT_WORD(8, FLASH_PAYLOAD);
+	memcpy(image + 12, "6578", 4);
+	PUT_WORD(0x10, loader_s);
+	PUT_WORD(0x14, loader_e);
+	PUT_WORD(0x18, FLASH_PAYLOAD);
+	/* Empty base image: the OpenWrt image builder extends this to payload end. */
+	PUT_WORD(0x1c, FLASH_PAYLOAD);
+
+	if (strcmp(soc, "en751221")) {
+		PUT_WORD(0x28, 0x00040010u);
+		PUT_WORD(0x30, 0x9fa30000u);
+		PUT_WORD(0x34, 0x80000000u);
+		if (!strcmp(soc, "en7528"))
+			PUT_WORD(0x40, 0x035a3c96u);
+		PUT_WORD(0x50, boot2_s);
+		PUT_WORD(0x54, boot2_e);
+		PUT_WORD(0x58, ddr_s);
+		PUT_WORD(0x5c, ddr_e);
+	}
+
+	if (!strcmp(soc, "en751627")) {
+		static const uint8_t zeros[8] = { 0 };
+		if (memcmp(image + ddr_s, zeros, sizeof(zeros))) {
+			fprintf(stderr, "econet-image: EN751627 DDR entry prefix is not reserved zero space\n");
+			goto out;
+		}
+		put_be32(image + ddr_s, 0x0be8c0a0u);
+		put_be32(image + ddr_s + 4, 0);
+	}
+
+	if (minfo_path)
+		memcpy(image + FLASH_MINFO, minfo.data, 0x100);
+	else
+		memset(image + FLASH_MINFO, 0, 0x100);
+
+	PUT_WORD(0xffb0, 0x50414745u);
+	if (!strcmp(soc, "en7528"))
+		PUT_WORD(0x1fff8, 0x50414745u);
+	PUT_WORD(FLASH_CRC, crc32_ieee(image, FLASH_CRC) ^ 0xffffffffu);
+#undef PUT_WORD
+
+	write_file(output, image, FLASH_PAYLOAD);
+	ret = 0;
+out:
+	free(image);
+	free(syms);
+	free_blob(&minfo);
+	free_blob(&stages);
+	return ret;
+}
+
+static int tcboot_base_endian(const struct blob *boot, bool *big_endian)
+{
+	uint32_t be_start, le_start, be_end, le_end;
+
+	if (boot->len != FLASH_PAYLOAD) {
+		fprintf(stderr, "econet-image: TCBoot base must be exactly 0x%x bytes, got 0x%zx\n",
+				FLASH_PAYLOAD, boot->len);
+		return -1;
+	}
+	if (memcmp(boot->data + 12, "6578", 4)) {
+		fprintf(stderr, "econet-image: TCBoot magic '6578' is missing at offset 0x0c\n");
+		return -1;
+	}
+
+	be_start = get_be32(boot->data + 0x18);
+	le_start = get_le32(boot->data + 0x18);
+	be_end = get_be32(boot->data + 0x1c);
+	le_end = get_le32(boot->data + 0x1c);
+	if (be_start == FLASH_PAYLOAD && be_end == FLASH_PAYLOAD &&
+	    !(le_start == FLASH_PAYLOAD && le_end == FLASH_PAYLOAD)) {
+		*big_endian = true;
+		return 0;
+	}
+	if (le_start == FLASH_PAYLOAD && le_end == FLASH_PAYLOAD &&
+	    !(be_start == FLASH_PAYLOAD && be_end == FLASH_PAYLOAD)) {
+		*big_endian = false;
+		return 0;
+	}
+
+	fprintf(stderr, "econet-image: TCBoot base has invalid payload bounds\n");
+	return -1;
+}
+
+static int compose_tcboot(const char *boot_path, const char *payload_path,
+			  uint32_t load, uint32_t entry, const char *output_path)
+{
+	struct blob boot = read_file(boot_path);
+	struct blob payload = read_file(payload_path);
+	struct blob container = { 0 };
+	uint8_t *image = NULL;
+	bool big_endian;
+	size_t image_len;
+	int ret = 1;
+
+	if (tcboot_base_endian(&boot, &big_endian) < 0)
+		goto out;
+	if (!payload.len || payload.len > UINT32_MAX ||
+	    load < 0x81000000u || load >= 0x82000000u ||
+	    payload.len > 0x82000000u - load ||
+	    entry < load || (uint64_t)entry >= (uint64_t)load + payload.len) {
+		fprintf(stderr, "econet-image: payload size/load/entry is unsupported\n");
+		goto out;
+	}
+
+	container = make_ecnt(payload.data, payload.len, load, entry);
+	image_len = FLASH_PAYLOAD + container.len;
+	if (image_len > FLASH_LIMIT) {
+		fprintf(stderr, "econet-image: payload does not fit in the 1 MiB boot region\n");
+		goto out;
+	}
+
+	image = malloc(image_len);
+	if (!image)
+		die("out of memory");
+	memcpy(image, boot.data, boot.len);
+	memcpy(image + FLASH_PAYLOAD, container.data, container.len);
+
+	put_native32(image + 0x18, FLASH_PAYLOAD, big_endian);
+	put_native32(image + 0x1c, (uint32_t)image_len, big_endian);
+	put_native32(image + FLASH_CRC,
+		     crc32_ieee(image, FLASH_CRC) ^ 0xffffffffu, big_endian);
+
+	write_file(output_path, image, image_len);
+	ret = 0;
+out:
+	free(image);
+	free_blob(&container);
+	free_blob(&payload);
+	free_blob(&boot);
+	return ret;
+}
+
 static int finalize_tcboot(const char *soc, const char *image_path,
 						   const char *output_path, const char *stock_path)
 {
@@ -1321,7 +1529,9 @@ static void usage(FILE *f)
 		"\t  --load ADDR --output FILE [--minfo FILE]\n"
 		"  econet-image bootext --dramc FILE --chainloader FILE --chain-offset OFF\\\n"
 		"\t  --max-size SIZE --output FILE\n"
-		"  econet-image tcboot --soc SOC --image FILE [--output FILE] [--stock FILE]\n"
+		"  econet-image tcboot-base --soc SOC --stages FILE --symbols FILE --output FILE [--minfo FILE]\n"
+		"  econet-image tcboot --boot FILE --payload FILE --load ADDR --entry ADDR --output FILE\n"
+		"  econet-image tcboot-finalize --soc SOC --image FILE [--output FILE] [--stock FILE]\n"
 		"  econet-image check-en751221-bootext --image FILE --dramc FILE --chainloader FILE\\\n"
 		"\t  --bootstrap-symbols FILE --dramc-symbols FILE --chainloader-symbols FILE\n"
 		"  econet-image selftest\n");
@@ -1434,7 +1644,68 @@ static int cmd_bootext(int argc, char **argv)
 	return pack_bootext(dramc, chain, chain_offset, max_size, output);
 }
 
+static int cmd_tcboot_base(int argc, char **argv)
+{
+	const char *soc = NULL, *stages = NULL, *symbols = NULL;
+	const char *output = NULL, *minfo = NULL;
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "--soc"))
+			soc = next_arg(&i, argc, argv, "--soc");
+		else if (!strcmp(argv[i], "--stages"))
+			stages = next_arg(&i, argc, argv, "--stages");
+		else if (!strcmp(argv[i], "--symbols"))
+			symbols = next_arg(&i, argc, argv, "--symbols");
+		else if (!strcmp(argv[i], "--output"))
+			output = next_arg(&i, argc, argv, "--output");
+		else if (!strcmp(argv[i], "--minfo"))
+			minfo = next_arg(&i, argc, argv, "--minfo");
+		else {
+			usage(stderr);
+			return 2;
+		}
+	}
+	if (!soc || !stages || !symbols || !output) {
+		usage(stderr);
+		return 2;
+	}
+	return pack_tcboot_base(soc, stages, symbols, minfo, output);
+}
+
 static int cmd_tcboot(int argc, char **argv)
+{
+	const char *boot = NULL, *payload = NULL, *output = NULL;
+	uint32_t load = 0, entry = 0;
+	bool have_load = false, have_entry = false;
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "--boot"))
+			boot = next_arg(&i, argc, argv, "--boot");
+		else if (!strcmp(argv[i], "--payload"))
+			payload = next_arg(&i, argc, argv, "--payload");
+		else if (!strcmp(argv[i], "--load")) {
+			load = parse_u32(next_arg(&i, argc, argv, "--load"));
+			have_load = true;
+		} else if (!strcmp(argv[i], "--entry")) {
+			entry = parse_u32(next_arg(&i, argc, argv, "--entry"));
+			have_entry = true;
+		} else if (!strcmp(argv[i], "--output"))
+			output = next_arg(&i, argc, argv, "--output");
+		else {
+			usage(stderr);
+			return 2;
+		}
+	}
+	if (!boot || !payload || !output || !have_load || !have_entry) {
+		usage(stderr);
+		return 2;
+	}
+	return compose_tcboot(boot, payload, load, entry, output);
+}
+
+static int cmd_tcboot_finalize(int argc, char **argv)
 {
 	const char *soc = NULL, *image = NULL, *output = NULL, *stock = NULL;
 	int i;
@@ -1796,9 +2067,10 @@ static int selftest(void)
 		legacy.data = buf;
 		legacy.len = 64 + f.data_len;
 		TEST(prepare_uboot(&legacy, 0x81000000u, &prepared, &format) == 0 &&
-			 !strcmp(format, "legacy") && prepared.len == legacy.len &&
-			 !memcmp(prepared.data, legacy.data, legacy.len),
-			 "legacy U-Boot remains legacy");
+			 !strcmp(format, "legacy->ecnt") && validate_ecnt(&prepared, true) == 0 &&
+			 get_be32(prepared.data + 12) == f.data_len &&
+			 !memcmp(prepared.data + ECONET_BOOT_HEADER_SIZE, f.data, f.data_len),
+			 "legacy U-Boot payload wrapped as ECNT");
 		free_blob(&prepared);
 	}
 
@@ -1890,8 +2162,12 @@ int main(int argc, char **argv)
 		return cmd_flash(argc - 2, argv + 2);
 	if (!strcmp(argv[1], "bootext"))
 		return cmd_bootext(argc - 2, argv + 2);
+	if (!strcmp(argv[1], "tcboot-base"))
+		return cmd_tcboot_base(argc - 2, argv + 2);
 	if (!strcmp(argv[1], "tcboot"))
 		return cmd_tcboot(argc - 2, argv + 2);
+	if (!strcmp(argv[1], "tcboot-finalize"))
+		return cmd_tcboot_finalize(argc - 2, argv + 2);
 	if (!strcmp(argv[1], "selftest"))
 		return selftest();
 	if (!strcmp(argv[1], "check-en751221-bootext"))

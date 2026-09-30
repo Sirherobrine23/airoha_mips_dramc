@@ -7,6 +7,11 @@ define Device/en7528
 	SOC_LD_EMULATION := elf32ltsmip
 	SOC_PAYLOAD_OFFSET := 0x00020000
 	SOC_TCBOOT := y
+	TCBOOT_BOOT2 := y
+	TCBOOT_MOVE_DATA_SRC := $$(SRCTREE)/flash/en7528/move_data.S
+	TCBOOT_MOVE_DATA_LDS := $$(SRCTREE)/flash/en7528/move_data.lds
+	TCBOOT_BOOT2_SRC := $$(SRCTREE)/flash/en7528/boot2.S
+	TCBOOT_BOOT2_LDS := $$(SRCTREE)/flash/en7528/boot2.lds
 	SOC_BOOTEXT := y
 
 	DRAMC_LDS := $$(DRAMC_DIR)/ddr.lds

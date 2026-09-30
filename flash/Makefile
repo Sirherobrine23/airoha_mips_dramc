@@ -34,7 +34,7 @@ define flash/compile
 	@mv -f "$(CHAIN_OUTPUT).tmp" "$(CHAIN_OUTPUT)"
 endef
 
-# EN751221 has two extra first-stage blobs; other devices leave TCBOOT_BOOT2=n.
+# Devices with source-built vendor first-stage blobs set TCBOOT_BOOT2=y.
 define tcboot/compile/boot2
 	@printf '  CC         %s\n' move_data.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \

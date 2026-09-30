@@ -20,6 +20,14 @@ jobs:
       - name: Build host tool and run selftest
         run: make test
 
+      - name: Upload build artifacts
+        if: always()
+        uses: https://github.com/christopherHX/gitea-upload-artifact@v4
+        with:
+          name: host
+          path: out/host/
+          if-no-files-found: ignore
+
   # Per-SoC firmware build. Endianness/toolchain per SoC come straight from
   # soc/*.mk: en751221 and en751627 are big-endian (mips-linux-gnu-), en7528
   # and en7580 are little-endian (mipsel-linux-gnu-). LLVM is skipped for
@@ -84,11 +92,20 @@ jobs:
       - name: Build ${{ matrix.soc }}
         continue-on-error: ${{ matrix.experimental == true }}
         run: |
-          if [ "${{ matrix.toolchain }}" = "llvm" ]; then
-            make LLVM=1 EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}
-          else
-            make CROSS_COMPILE=${{ matrix.cross }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}
-          fi
+          make ${{ matrix.toolchain == 'llvm' && 'LLVM=1' || format('CROSS_COMPILE={0}', matrix.cross) }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}
+
+      - name: Build bootext ${{ matrix.soc }}
+        continue-on-error: true
+        run: |
+          make ${{ matrix.toolchain == 'llvm' && 'LLVM=1' || format('CROSS_COMPILE={0}', matrix.cross) }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}-bootext
+
+      - name: Build recovery ${{ matrix.soc }}
+        continue-on-error: true
+        run: make ${{ matrix.toolchain == 'llvm' && 'LLVM=1' || format('CROSS_COMPILE={0}', matrix.cross) }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}-recovery
+
+      - name: Build tcboot ${{ matrix.soc }}
+        continue-on-error: ${{ matrix.experimental == true }}
+        run: make ${{ matrix.toolchain == 'llvm' && 'LLVM=1' || format('CROSS_COMPILE={0}', matrix.cross) }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}-tcboot
 
       - name: Upload build artifacts
         if: always()
@@ -106,7 +123,7 @@ jobs:
   bootext-check:
     name: EN751221 bootext image/layout check
     runs-on: ubuntu-latest
-    needs: build
+    needs: host-test
     steps:
       - uses: actions/checkout@v4
 

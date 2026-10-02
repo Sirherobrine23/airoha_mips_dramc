@@ -2,7 +2,7 @@
 /*
  * EcoNet/Airoha MIPS host-side image utility.
  *
- * Replaces the former Python helpers with one dependency-free C program:
+ * Replaces the former Python helpers with one C program (gzip/xz are used only for optional compression):
  *   econet-image chainloader --image IN [--output OUT] [--check-offset OFF]
  *   econet-image flash --soc SOC --stages FILE --symbols FILE \
  *	   --uboot FILE --load ADDR --output FILE [--minfo FILE]
@@ -15,6 +15,7 @@
  *   econet-image check-en751221-bootext (images + nm symbol listings)
  */
 
+#define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -23,6 +24,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include "../flash/ecnt.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -48,9 +52,6 @@
 #define FDT_NOP					0x00000004u
 #define FDT_END					0x00000009u
 
-#define ECONET_BOOT_MAGIC		0x45434e54u
-#define ECONET_BOOT_VERSION		1u
-#define ECONET_BOOT_HEADER_SIZE	32u
 #define BOOT_IMAGE_SIZE			0x100000u
 #define TCBOOT_MAGIC_OFFSET		0x0cu
 #define CRC1_OFFSET				0x1fffcu
@@ -980,35 +981,47 @@ static int extract_fit_payload(const struct blob *fit, uint32_t default_load,
 
 static int validate_ecnt(const struct blob *b, bool quiet)
 {
-	uint8_t hdr[ECONET_BOOT_HEADER_SIZE];
-	uint32_t version, off, size, load, entry, dcrc, hcrc;
+	uint8_t hdr[ECONET_BOOT_HEADER_V2];
+	uint32_t version, off, size, load, entry, dcrc, hcrc, unpacked, comp = 0;
+	size_t header_size;
 
 	if (b->len < ECONET_BOOT_HEADER_SIZE || get_be32(b->data) != ECONET_BOOT_MAGIC)
 		return -1;
-	memcpy(hdr, b->data, sizeof(hdr));
+	version = get_be32(b->data + 4);
+	header_size = version == ECONET_BOOT_VERSION ? ECONET_BOOT_HEADER_SIZE :
+		version == ECONET_BOOT_VERSION_V2 ? ECONET_BOOT_HEADER_V2 : 0;
+	if (!header_size || b->len < header_size)
+		goto invalid;
+	memcpy(hdr, b->data, header_size);
 	hcrc = get_be32(hdr + 28);
 	memset(hdr + 28, 0, 4);
-	if (crc32_ieee(hdr, sizeof(hdr)) != hcrc) {
-		if (!quiet)
-			fprintf(stderr, "econet-image: invalid ECNT header CRC\n");
-		return -1;
+	if (crc32_ieee(hdr, header_size) != hcrc)
+		goto invalid;
+	off = get_be32(hdr + 8);
+	size = get_be32(hdr + 12);
+	load = get_be32(hdr + 16);
+	entry = get_be32(hdr + 20);
+	dcrc = get_be32(hdr + 24);
+	unpacked = size;
+	if (version == ECONET_BOOT_VERSION_V2) {
+		comp = get_be32(hdr + 32);
+		unpacked = get_be32(hdr + 36);
+		if (comp > ECONET_COMP_LZMA || get_be32(hdr + 44) ||
+		    (!comp && (unpacked != size || get_be32(hdr + 40) != dcrc)))
+			goto invalid;
 	}
-	version = get_be32(b->data + 4);
-	off = get_be32(b->data + 8);
-	size = get_be32(b->data + 12);
-	load = get_be32(b->data + 16);
-	entry = get_be32(b->data + 20);
-	dcrc = get_be32(b->data + 24);
-	if (version != ECONET_BOOT_VERSION || off < ECONET_BOOT_HEADER_SIZE ||
-		!range_ok_size(off, size, b->len) || !size ||
-		load < 0x81000000u || (uint64_t)load + size > 0x82000000ull ||
-		entry < load || (uint64_t)entry >= (uint64_t)load + size ||
-		crc32_ieee(b->data + off, size) != dcrc) {
-		if (!quiet)
-			fprintf(stderr, "econet-image: invalid ECNT payload metadata/CRC\n");
-		return -1;
-	}
+	if (off < header_size || off > FLASH_LIMIT - FLASH_PAYLOAD || !range_ok_size(off, size, b->len) || !size ||
+	    size > FLASH_LIMIT - FLASH_PAYLOAD - off ||
+	    load < 0x81000000u || load >= 0x82000000u || !unpacked ||
+	    unpacked > 0x82000000u - load ||
+	    entry < load || (uint64_t)entry >= (uint64_t)load + unpacked ||
+	    crc32_ieee(b->data + off, size) != dcrc)
+		goto invalid;
 	return 0;
+invalid:
+	if (!quiet)
+		fprintf(stderr, "econet-image: invalid ECNT metadata/CRC\n");
+	return -1;
 }
 
 static struct blob make_ecnt(const uint8_t *payload, size_t payload_len,
@@ -1255,8 +1268,8 @@ static int pack_tcboot_base(const char *soc, const char *stages_path,
 		goto out;
 	}
 
-	if (stages.len >= FLASH_MINFO || stages.len < 0x60) {
-		fprintf(stderr, "econet-image: initial stages overlap mi.conf or are incomplete\n");
+	if (stages.len >= FLASH_CRC || stages.len < 0x60) {
+		fprintf(stderr, "econet-image: initial stages exceed base region or are incomplete\n");
 		goto out;
 	}
 
@@ -1269,8 +1282,18 @@ static int pack_tcboot_base(const char *soc, const char *stages_path,
 
 	if (move_e >= 0x800 || !(move_e <= boot2_s && boot2_s < boot2_e &&
 					  boot2_e <= loader_s && loader_s < loader_e &&
-					  loader_e <= ddr_s)) {
+					  boot2_e <= ddr_s && ddr_s < ddr_e &&
+					  (loader_e <= ddr_s || ddr_e <= loader_s))) {
 		fprintf(stderr, "econet-image: invalid first-page placement or overlapping stages\n");
+		goto out;
+	}
+
+	/* Stages may occupy the second 64 KiB, but never mi.conf/PAGE. */
+	if ((move_s < 0x10000 && move_e > FLASH_MINFO) ||
+	    (boot2_s < 0x10000 && boot2_e > FLASH_MINFO) ||
+	    (loader_s < 0x10000 && loader_e > FLASH_MINFO) ||
+	    (ddr_s < 0x10000 && ddr_e > FLASH_MINFO)) {
+		fprintf(stderr, "econet-image: stages overlap manufacturing data\n");
 		goto out;
 	}
 
@@ -1385,8 +1408,89 @@ static int tcboot_base_endian(const struct blob *boot, bool *big_endian)
 	return -1;
 }
 
+/* Use argv-based child processes, never a shell. Compression is optional;
+ * ordinary ECNT v1 packaging keeps the host tool dependency-free.
+ */
+static struct blob compress_payload(const struct blob *input, uint32_t comp)
+{
+	struct blob out = { 0 };
+	FILE *source = tmpfile(), *dest = tmpfile();
+	pid_t child;
+	int status;
+	long length;
+
+	if (!source || !dest)
+		die("cannot create compression temporary files");
+	if (fwrite(input->data, 1, input->len, source) != input->len || fflush(source))
+		die("cannot write compression input");
+	rewind(source);
+	child = fork();
+	if (child < 0)
+		die("cannot start compressor");
+	if (!child) {
+		if (dup2(fileno(source), STDIN_FILENO) < 0 ||
+		    dup2(fileno(dest), STDOUT_FILENO) < 0)
+			_exit(126);
+		if (comp == ECONET_COMP_GZIP)
+			execlp("gzip", "gzip", "-n", "-9", "-c", (char *)NULL);
+		else
+			execlp("xz", "xz", "--format=lzma",
+			       "--lzma1=dict=1MiB,lc=3,lp=0,pb=2", "-c", (char *)NULL);
+		perror("econet-image: compressor");
+		_exit(127);
+	}
+	while (waitpid(child, &status, 0) < 0) {
+		if (errno != EINTR)
+			die("cannot wait for compressor");
+	}
+	if (!WIFEXITED(status) || WEXITSTATUS(status))
+		die("compression failed (gzip or xz must be installed)");
+	if (fseek(dest, 0, SEEK_END) || (length = ftell(dest)) <= 0 ||
+	    (unsigned long)length > FLASH_LIMIT - FLASH_PAYLOAD - ECONET_BOOT_HEADER_V2)
+		die("compressed payload does not fit in the boot region");
+	out.len = (size_t)length;
+	out.data = malloc(out.len);
+	if (!out.data)
+		die("out of memory");
+	rewind(dest);
+	if (fread(out.data, 1, out.len, dest) != out.len)
+		die("cannot read compression output");
+	fclose(source);
+	fclose(dest);
+	return out;
+}
+
+static struct blob make_ecnt_compressed(const struct blob *payload,
+		uint32_t load, uint32_t entry, uint32_t comp)
+{
+	struct blob stored = compress_payload(payload, comp);
+	struct blob out = { 0 };
+	uint8_t *h;
+
+	out.len = ECONET_BOOT_HEADER_V2 + stored.len;
+	out.data = calloc(1, out.len);
+	if (!out.data)
+		die("out of memory");
+	h = out.data;
+	put_be32(h, ECONET_BOOT_MAGIC);
+	put_be32(h + 4, ECONET_BOOT_VERSION_V2);
+	put_be32(h + 8, ECONET_BOOT_HEADER_V2);
+	put_be32(h + 12, (uint32_t)stored.len);
+	put_be32(h + 16, load);
+	put_be32(h + 20, entry);
+	put_be32(h + 24, crc32_ieee(stored.data, stored.len));
+	put_be32(h + 32, comp);
+	put_be32(h + 36, (uint32_t)payload->len);
+	put_be32(h + 40, crc32_ieee(payload->data, payload->len));
+	put_be32(h + 28, crc32_ieee(h, ECONET_BOOT_HEADER_V2));
+	memcpy(h + ECONET_BOOT_HEADER_V2, stored.data, stored.len);
+	free_blob(&stored);
+	return out;
+}
+
 static int compose_tcboot(const char *boot_path, const char *payload_path,
-			  uint32_t load, uint32_t entry, const char *output_path)
+			  uint32_t load, uint32_t entry, const char *output_path,
+			  uint32_t compression)
 {
 	struct blob boot = read_file(boot_path);
 	struct blob payload = read_file(payload_path);
@@ -1406,7 +1510,8 @@ static int compose_tcboot(const char *boot_path, const char *payload_path,
 		goto out;
 	}
 
-	container = make_ecnt(payload.data, payload.len, load, entry);
+	container = compression ? make_ecnt_compressed(&payload, load, entry, compression) :
+		make_ecnt(payload.data, payload.len, load, entry);
 	image_len = FLASH_PAYLOAD + container.len;
 	if (image_len > FLASH_LIMIT) {
 		fprintf(stderr, "econet-image: payload does not fit in the 1 MiB boot region\n");
@@ -1530,7 +1635,7 @@ static void usage(FILE *f)
 		"  econet-image bootext --dramc FILE --chainloader FILE --chain-offset OFF\\\n"
 		"\t  --max-size SIZE --output FILE\n"
 		"  econet-image tcboot-base --soc SOC --stages FILE --symbols FILE --output FILE [--minfo FILE]\n"
-		"  econet-image tcboot --boot FILE --payload FILE --load ADDR --entry ADDR --output FILE\n"
+		"  econet-image tcboot --boot FILE --payload FILE --load ADDR --entry ADDR --output FILE [--compression none|gzip|lzma]\n"
 		"  econet-image tcboot-finalize --soc SOC --image FILE [--output FILE] [--stock FILE]\n"
 		"  econet-image check-en751221-bootext --image FILE --dramc FILE --chainloader FILE\\\n"
 		"\t  --bootstrap-symbols FILE --dramc-symbols FILE --chainloader-symbols FILE\n"
@@ -1676,7 +1781,7 @@ static int cmd_tcboot_base(int argc, char **argv)
 static int cmd_tcboot(int argc, char **argv)
 {
 	const char *boot = NULL, *payload = NULL, *output = NULL;
-	uint32_t load = 0, entry = 0;
+	uint32_t load = 0, entry = 0, compression = ECONET_COMP_NONE;
 	bool have_load = false, have_entry = false;
 	int i;
 
@@ -1685,7 +1790,20 @@ static int cmd_tcboot(int argc, char **argv)
 			boot = next_arg(&i, argc, argv, "--boot");
 		else if (!strcmp(argv[i], "--payload"))
 			payload = next_arg(&i, argc, argv, "--payload");
-		else if (!strcmp(argv[i], "--load")) {
+		else if (!strcmp(argv[i], "--compression")) {
+			const char *name = next_arg(&i, argc, argv, "--compression");
+
+			if (!strcmp(name, "none"))
+				compression = ECONET_COMP_NONE;
+			else if (!strcmp(name, "gzip"))
+				compression = ECONET_COMP_GZIP;
+			else if (!strcmp(name, "lzma"))
+				compression = ECONET_COMP_LZMA;
+			else {
+				fprintf(stderr, "econet-image: unsupported compression '%s'\n", name);
+				return 2;
+			}
+		} else if (!strcmp(argv[i], "--load")) {
 			load = parse_u32(next_arg(&i, argc, argv, "--load"));
 			have_load = true;
 		} else if (!strcmp(argv[i], "--entry")) {
@@ -1702,7 +1820,7 @@ static int cmd_tcboot(int argc, char **argv)
 		usage(stderr);
 		return 2;
 	}
-	return compose_tcboot(boot, payload, load, entry, output);
+	return compose_tcboot(boot, payload, load, entry, output, compression);
 }
 
 static int cmd_tcboot_finalize(int argc, char **argv)
@@ -2028,6 +2146,48 @@ static int selftest(void)
 			 !strcmp(format, "raw->ecnt") && validate_ecnt(&prepared, true) == 0,
 			 "raw U-Boot wrapped as ECNT");
 		free_blob(&prepared);
+	}
+
+	{
+		struct blob v2 = { calloc(1, ECONET_BOOT_HEADER_V2 + f.data_len),
+				   ECONET_BOOT_HEADER_V2 + f.data_len };
+		uint8_t saved[ECONET_BOOT_HEADER_V2];
+		unsigned int j;
+		static const struct { unsigned int offset; uint32_t value; } bad[] = {
+			{ 4, 3 }, { 8, 32 }, { 8, UINT32_MAX }, { 12, 0 },
+			{ 16, 0x82000000u }, { 20, 0x81010000u }, { 32, 3 },
+			{ 36, 0 }, { 36, 0x1000001u }, { 40, 0 }, { 44, 1 }
+		};
+
+		if (!v2.data)
+			die("out of memory");
+		put_be32(v2.data, ECONET_BOOT_MAGIC);
+		put_be32(v2.data + 4, ECONET_BOOT_VERSION_V2);
+		put_be32(v2.data + 8, ECONET_BOOT_HEADER_V2);
+		put_be32(v2.data + 12, (uint32_t)f.data_len);
+		put_be32(v2.data + 16, 0x81000000u);
+		put_be32(v2.data + 20, 0x81000000u);
+		put_be32(v2.data + 24, crc32_ieee(f.data, f.data_len));
+		put_be32(v2.data + 36, (uint32_t)f.data_len);
+		put_be32(v2.data + 40, crc32_ieee(f.data, f.data_len));
+		put_be32(v2.data + 28, crc32_ieee(v2.data, ECONET_BOOT_HEADER_V2));
+		memcpy(v2.data + ECONET_BOOT_HEADER_V2, f.data, f.data_len);
+		TEST(validate_ecnt(&v2, true) == 0, "ECNT v2 uncompressed metadata accepted");
+		memcpy(saved, v2.data, sizeof(saved));
+		for (j = 0; j < ARRAY_SIZE(bad); j++) {
+			memcpy(v2.data, saved, sizeof(saved));
+			put_be32(v2.data + bad[j].offset, bad[j].value);
+			put_be32(v2.data + 28, 0);
+			put_be32(v2.data + 28, crc32_ieee(v2.data, ECONET_BOOT_HEADER_V2));
+			TEST(validate_ecnt(&v2, true) < 0, "ECNT v2 malformed metadata rejected");
+		}
+		memcpy(v2.data, saved, sizeof(saved));
+		v2.data[40] ^= 1;
+		TEST(validate_ecnt(&v2, true) < 0, "ECNT v2 extended header CRC checked");
+		memcpy(v2.data, saved, sizeof(saved));
+		v2.len = ECONET_BOOT_HEADER_V2 - 1;
+		TEST(validate_ecnt(&v2, true) < 0, "ECNT v2 truncated header rejected");
+		free_blob(&v2);
 	}
 
 	{

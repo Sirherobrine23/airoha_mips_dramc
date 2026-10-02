@@ -33,19 +33,25 @@ include $(SRCTREE)/images/Makefile
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean test help hosttools tcboot bootext recovery
+.PHONY: all clean test test-compression test-mips-compression help hosttools tcboot bootext recovery
 
 all: $(BUILD_DEVICES) bootext recovery tcboot
 
 hosttools: $(HOST_TOOL)
 
-$(HOST_TOOL): $(SRCTREE)/tools/econet-image.c
+$(HOST_TOOL): $(SRCTREE)/tools/econet-image.c $(SRCTREE)/flash/ecnt.h
 	@mkdir -p "$(dir $@)"
 	@tmp="$@.$$$$.tmp"; \
 		$(HOSTCC) $(HOSTCFLAGS) "$<" -o "$$tmp" && mv -f "$$tmp" "$@"
 
 test: $(HOST_TOOL)
 	@"$(HOST_TOOL)" selftest
+
+test-compression: $(HOST_TOOL)
+	@HOSTCC="$(HOSTCC)" python3 "$(SRCTREE)/tests/compression.py" "$(HOST_TOOL)"
+
+test-mips-compression:
+	@python3 "$(SRCTREE)/tests/mips-compression.py"
 
 tcboot: $(addsuffix -tcboot,$(TARGET_TCBOOT))
 bootext: $(addsuffix -bootext,$(TARGET_BOOTEXT))

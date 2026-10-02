@@ -204,8 +204,8 @@ The result is `out/<soc>/tcboot.bin`, a 128 KiB base image ending at flash
 offset `0x20000`. It contains the BootROM stages, DRAM calibration payload and
 the generic post-DRAM flash loader, but no U-Boot/FIT/kernel payload.
 
-The loader understands only the small ECNT payload descriptor. It does not
-parse uImage, FIT or ELF. The image builder chooses an arbitrary payload, load
+The loader understands only the small ECNT payload descriptor (v1 and v2).
+It does not parse uImage, FIT or ELF. The image builder chooses an arbitrary payload, load
 address and entry address, and wraps those opaque bytes before appending them:
 
 ```sh
@@ -222,6 +222,56 @@ recalculates its CRC, and appends an ECNT descriptor plus the payload. It emits
 only the used bytes; an outer image pipeline such as OpenWrt can pad the
 artifact to the flash partition size afterwards. This keeps U-Boot/FIP/FIT
 selection entirely in the OpenWrt image recipe rather than in this build.
+
+Optional post-DRAM compression is selected when attaching the payload:
+
+```sh
+make LLVM=1 tcboot SOC=en7528
+out/host/econet-image tcboot \
+    --boot out/en7528/tcboot.bin \
+    --payload /path/to/u-boot.bin \
+    --load 0x81000000 --entry 0x81000000 \
+    --compression lzma \
+    --output /tmp/tcboot-with-payload.bin
+```
+
+Use `--compression gzip` for gzip, or `none` (the default) for the original
+uncompressed ECNT v1 format. Always rebuild the TCBoot base with this loader
+before attaching compressed payloads; old loaders cannot read ECNT v2.
+Compression runs on the host via `gzip -n -9` or `xz --format=lzma` (LZMA1,
+1 MiB dictionary, lc=3/lp=0/pb=2). The tool uses child processes with argv,
+without a shell. The input is a raw executable payload, not a precompressed
+file or a FIT/uImage container. XZ containers and LZMA2 are not supported.
+
+Compressed payloads use the 48-byte ECNT v2 header. It stores the algorithm,
+stored/unpacked sizes, CRC32 of each form and a CRC32 covering the whole
+header. The loader rejects malformed sizes, unsupported algorithms, extra
+stream data and incomplete streams, then checks the unpacked CRC before
+executing. The payload entry is validated against its unpacked range.
+Gzip also checks its own trailer CRC32/ISIZE. LZMA-alone accepts a known
+unpacked size or an end marker with the unknown-size header; lc+lp must be
+at most 4 and the declared dictionary at most 16 MiB.
+
+The loader runs after DRAM calibration. Its stack remains at `0x8007fff0`,
+its 64 KiB decoder workspace is at `0x80100000`, and compressed input is at
+`0x80200000`. Output stays in `0x81000000..0x81ffffff`. These areas are
+disjoint and fit the existing minimum 32 MiB DRAM window. The input and
+output are accessed through uncached aliases, with cache maintenance before
+execution. No runtime heap is used; LZMA uses the output as its dictionary.
+
+EN751627's 53 KiB vendor DRAMC leaves too little flash space for both decoders
+below mi.conf. Its dedicated linker layout places calibration below `0xff00`
+and the post-DRAM loader at `0x10000`, still inside the 128 KiB base. The
+existing loader/DRAMC offset fields describe both intervals; mi.conf/PAGE
+and the boot CRC remain reserved. Other SoCs retain the existing layout.
+
+Validation commands:
+
+```sh
+make test                    # host image/descriptor checks
+make test-compression        # host decoder and packaging checks; Python 3, gzip, xz
+make test-mips-compression   # Clang, LLD, qemu-mips and qemu-mipsel
+```
 
 The descriptor and payload must fit in the 1 MiB replacement bootloader region.
 The current loader accepts payload destinations in `0x81000000..0x81ffffff`;

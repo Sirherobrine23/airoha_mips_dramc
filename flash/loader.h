@@ -33,13 +33,6 @@ void uart_put_hex32(uint32_t value);
 #define PAYLOAD_RAM_MIN         0x81000000U
 #define PAYLOAD_RAM_MAX         0x82000000U
 
-/*
- * The flash loader intentionally understands one format only.  The image
- * builder wraps an arbitrary payload in this descriptor; the payload bytes
- * themselves are opaque to TCBoot.
- */
-#define ECONET_BOOT_MAGIC       0x45434e54U /* "ECNT" */
-#define ECONET_BOOT_VERSION     1U
-#define ECONET_BOOT_HEADER_SIZE 32U
+#include "ecnt.h"
 
 #endif

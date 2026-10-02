@@ -1,6 +1,23 @@
 # SPDX-License-Identifier: GPL-2.0+
 # Post-DRAM chainload and TCBoot builders.
 
+# SDK decoders run after DRAM calibration, with a bounded external workspace.
+FLASH_DECOMP_SOURCES := decompress.c decompress-memory.c \
+	decompress/LzmaDec.c decompress/inflate.c decompress/inffast.c \
+	decompress/inftrees.c decompress/adler32.c decompress/crc32.c decompress/zutil.c
+FLASH_DECOMP_FLAGS := -std=gnu11 -DZ_SOLO -DNOBYFOUR -D_LZMA_SIZE_OPT \
+	-ffunction-sections -fdata-sections -I"$(SRCTREE)/flash/decompress"
+
+define flash/compile/decompress
+	@set -e; for source in $(FLASH_DECOMP_SOURCES); do \
+		object=$$(basename "$$source" .c); \
+		$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+			-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 \
+			$(FLASH_DECOMP_FLAGS) -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+			-c "$(SRCTREE)/flash/$$source" -o "$(1)/$$object.o"; \
+	done
+endef
+
 # Compile the standalone post-DRAM flash reader into CHAIN_OUTPUT.
 define flash/compile
 	@rm -rf "$(CHAIN_BUILD)"
@@ -26,10 +43,12 @@ define flash/compile
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
 		$(FLASH_STANDALONE_CPPFLAGS) -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/early_sfc.c" -o "$(CHAIN_BUILD)/early_sfc.o"
+	$(call flash/compile/decompress,$(CHAIN_BUILD))
 	@printf '  LD         %s\n' "$(CHAIN_BUILD)/chainload.elf"
 	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(SRCTREE)/flash/loader.lds" \
-		-Map "$(CHAIN_BUILD)/chainload.map" -o "$(CHAIN_BUILD)/chainload.elf" \
-		"$(CHAIN_BUILD)/loader-start.o" "$(CHAIN_BUILD)/uart.o" "$(CHAIN_BUILD)/loader.o" "$(CHAIN_BUILD)/early_sfc.o"
+		--gc-sections -Map "$(CHAIN_BUILD)/chainload.map" -o "$(CHAIN_BUILD)/chainload.elf" \
+		"$(CHAIN_BUILD)/loader-start.o" "$(CHAIN_BUILD)/uart.o" "$(CHAIN_BUILD)/loader.o" "$(CHAIN_BUILD)/early_sfc.o" \
+		$(addprefix $(CHAIN_BUILD)/,$(notdir $(FLASH_DECOMP_SOURCES:.c=.o)))
 	$(TOOL_OBJCOPY) -O binary "$(CHAIN_BUILD)/chainload.elf" "$(CHAIN_OUTPUT).tmp"
 	@mv -f "$(CHAIN_OUTPUT).tmp" "$(CHAIN_OUTPUT)"
 endef
@@ -101,9 +120,11 @@ define tcboot/compile
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
 		$(FLASH_STANDALONE_CPPFLAGS) -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/early_sfc.c" -o "$(TCBOOT_BUILD)/flash.o"
+	$(call flash/compile/decompress,$(TCBOOT_BUILD))
 	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(SRCTREE)/flash/loader.lds" \
-		-Map "$(TCBOOT_BUILD)/loader.map" -o "$(TCBOOT_BUILD)/loader.elf" \
-		"$(TCBOOT_BUILD)/loader-start.o" "$(TCBOOT_BUILD)/uart.o" "$(TCBOOT_BUILD)/loader.o" "$(TCBOOT_BUILD)/flash.o"
+		--gc-sections -Map "$(TCBOOT_BUILD)/loader.map" -o "$(TCBOOT_BUILD)/loader.elf" \
+		"$(TCBOOT_BUILD)/loader-start.o" "$(TCBOOT_BUILD)/uart.o" "$(TCBOOT_BUILD)/loader.o" "$(TCBOOT_BUILD)/flash.o" \
+		$(addprefix $(TCBOOT_BUILD)/,$(notdir $(FLASH_DECOMP_SOURCES:.c=.o)))
 	$(TOOL_OBJCOPY) -O binary "$(TCBOOT_BUILD)/loader.elf" "$(TCBOOT_BUILD)/loader.bin"
 	@printf '  CC         %s\n' start.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
@@ -116,7 +137,7 @@ define tcboot/compile
 		-I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/$(DEVICE_SOC)/stages.S" -o "$(TCBOOT_BUILD)/stages.o"
 	$(if $(filter y,$(TCBOOT_BOOT2)),$(call tcboot/compile/boot2),$(call tcboot/compile/basic))
-	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(SRCTREE)/flash/flash.lds" \
+	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(SRCTREE)/flash/$(if $(filter en751627,$(DEVICE_SOC)),en751627/)flash.lds" \
 		-Map "$(TCBOOT_BUILD)/flash.map" -o "$(TCBOOT_BUILD)/flash.elf" \
 		"$(TCBOOT_BUILD)/start.o" "$(TCBOOT_BUILD)/payloads.o"
 	$(TOOL_OBJCOPY) -O binary "$(TCBOOT_BUILD)/flash.elf" "$(TCBOOT_BUILD)/flash.bin"

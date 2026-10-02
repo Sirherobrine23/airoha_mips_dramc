@@ -1,0 +1,12 @@
+Decoder provenance
+==================
+
+Imported unchanged from the supplied boot.tgz:
+boot/ATF/arm-trusted-firmware-2.3/lib/lzma/LzmaDec.c
+boot/ATF/arm-trusted-firmware-2.3/include/lib/lzma/{LzmaDec.h,Types.h}
+boot/ATF/arm-trusted-firmware-2.3/lib/zlib/
+
+LZMA decoder: Igor Pavlov, public domain (2009/2010).
+zlib decoder: zlib 1.2.11, zlib license retained in zlib.h.
+Only the decompression sources are built, with Z_SOLO and no libc allocator.
+The bounded allocator and format validation live in ../decompress.c.

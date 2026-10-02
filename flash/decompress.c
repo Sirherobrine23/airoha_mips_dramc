@@ -86,9 +86,10 @@ int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len,
 		struct lzma_allocator allocator = { { lzma_alloc, lzma_free }, &arena };
 		ELzmaStatus status;
 		SizeT in_size, out_size = dst_len;
-		uint64_t declared = 0;
+		uint32_t declared;
+		int declared_unknown;
 		uint32_t dict;
-		unsigned int i, lc, lp, prop;
+		unsigned int lc, lp, prop;
 		int ret;
 
 		/* LZMA-alone: properties (5 bytes), LE unpacked size (8 bytes). */
@@ -104,9 +105,15 @@ int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len,
 		       (uint32_t)src[3] << 16 | (uint32_t)src[4] << 24;
 		if (dict > 0x1000000U)
 			return -1;
-		for (i = 0; i < 8; i++)
-			declared |= (uint64_t)src[5 + i] << (i * 8);
-		if (declared != UINT64_MAX && declared != dst_len)
+		declared = (uint32_t)src[5] | (uint32_t)src[6] << 8 |
+			   (uint32_t)src[7] << 16 | (uint32_t)src[8] << 24;
+		declared_unknown = src[5] == 0xff && src[6] == 0xff &&
+				   src[7] == 0xff && src[8] == 0xff &&
+				   src[9] == 0xff && src[10] == 0xff &&
+				   src[11] == 0xff && src[12] == 0xff;
+		/* dst_len is bounded to u32, so known LZMA sizes need no u64 math. */
+		if (!declared_unknown &&
+		    (src[9] || src[10] || src[11] || src[12] || declared != dst_len))
 			return -1;
 		in_size = src_len - 13;
 		ret = LzmaDecode(dst, &out_size, src + 13, &in_size, src, 5,
@@ -114,7 +121,7 @@ int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len,
 		if (ret != SZ_OK || in_size != src_len - 13 || out_size != dst_len)
 			return -1;
 		if (status == LZMA_STATUS_FINISHED_WITH_MARK ||
-		    (declared != UINT64_MAX && status == LZMA_STATUS_MAYBE_FINISHED_WITHOUT_MARK))
+		    (!declared_unknown && status == LZMA_STATUS_MAYBE_FINISHED_WITHOUT_MARK))
 			return 0;
 	}
 	return -1;

@@ -33,7 +33,7 @@ include $(SRCTREE)/images/Makefile
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean test test-compression test-mips-compression help hosttools tcboot bootext recovery
+.PHONY: all clean test test-inspect test-compression test-mips-compression help hosttools tcboot bootext recovery
 
 all: $(BUILD_DEVICES) bootext recovery tcboot
 
@@ -46,6 +46,10 @@ $(HOST_TOOL): $(SRCTREE)/tools/econet-image.c $(SRCTREE)/flash/ecnt.h
 
 test: $(HOST_TOOL)
 	@"$(HOST_TOOL)" selftest
+
+test-inspect: $(HOST_TOOL)
+	@$(HOSTCC) $(HOSTCFLAGS) "$(SRCTREE)/tests/inspect.c" -o "$(abspath $(O))/host/test-inspect"
+	@"$(abspath $(O))/host/test-inspect" "$(HOST_TOOL)"
 
 test-compression: $(HOST_TOOL)
 	@HOSTCC="$(HOSTCC)" python3 "$(SRCTREE)/tests/compression.py" "$(HOST_TOOL)"

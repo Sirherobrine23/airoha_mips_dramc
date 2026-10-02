@@ -11,6 +11,8 @@
  *   econet-image tcboot-base --soc SOC --stages FILE --symbols FILE --output FILE
  *   econet-image tcboot --boot FILE --payload FILE --load ADDR --entry ADDR --output FILE
  *   econet-image tcboot-finalize --soc SOC --image FILE [--output FILE] [--stock FILE]
+ *   econet-image trx / sheader / trx-crc / secure-digest (SDK secure images)
+ *   econet-image inspect --image FILE [--format auto|trx|sheader|ecnt|tcboot]
  *   econet-image selftest
  *   econet-image check-en751221-bootext (images + nm symbol listings)
  */
@@ -1629,6 +1631,19 @@ static void usage(FILE *f)
 {
 	fprintf(f,
 		"usage:\n"
+		"  econet-image inspect --image FILE [--offset N] [--format auto|trx|sheader|ecnt|tcboot]\n"
+		"    [--endian little|big] [--soc SOC] [--verify-key PUBLIC_PEM]\n"
+		"  econet-image trx --kernel FILE [--rootfs FILE] [--romfile FILE] --output FILE\n"
+		"    [--magic hdr0|hdr1|hdr2|hdr3] [--endian little|big] [--align N] [--load ADDR]\n"
+		"    [--firmware-version STR] [--customer-version STR] [--model STR]\n"
+		"    [--secure-version 0|1|2 --key PEM|--signature FILE] [--verify-key PUBLIC_PEM]\n"
+		"  econet-image sheader --image FILE --output FILE [--version 0|1|2]\n"
+		"    (--boot-part 1|2 | --offset N --length N) (--key PEM | --signature FILE)\n"
+		"    [--endian little|big] [--verify-key PUBLIC_PEM] [--signature-format auto|raw|hex]\n"
+		"    [--secure-template FILE] [--rsa-pub FILE] [--rsa-info FILE]\n"
+		"  econet-image secure-digest --image FILE --output FILE [--offset N] [--length N]\n"
+		"  econet-image trx-crc --image FILE --output FILE (--boot-size N | --append)\n"
+		"    [--endian little|big]\n"
 		"  econet-image chainloader --image FILE [--output FILE] [--check-offset OFF]\n"
 		"  econet-image flash --soc SOC --stages FILE --symbols FILE --uboot FILE\\\n"
 		"\t  --load ADDR --output FILE [--minfo FILE]\n"
@@ -2064,6 +2079,1035 @@ static void fixture_chain_crc(uint8_t *image, size_t checked)
 	}
 }
 
+/* SDK TRX and SECURE_HEADER are distinct from our ECNT loader descriptor.
+ * The VX830v trx header is 256 bytes; do not serialize native C structs.
+ */
+#define SDK_TRX_SIZE 256U
+#define SDK_TRX_LIMIT 0x08000000U
+#define SDK_SH_V1_SIZE 276U
+#define SDK_SH_V2_SIZE 2048U
+#define SDK_HASH_CHUNK 0xfffffU
+
+struct sdk_sha256 {
+	uint32_t h[8];
+	uint64_t bytes;
+	uint8_t block[64];
+	size_t used;
+};
+
+static uint32_t sdk_ror(uint32_t x, unsigned int n)
+{
+	return (x >> n) | (x << (32 - n));
+}
+
+static void sdk_sha256_block(struct sdk_sha256 *s, const uint8_t *p)
+{
+	static const uint32_t k[64] = {
+		0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+		0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+		0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+		0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+		0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+		0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+		0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+		0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+	};
+	uint32_t w[64], a, b, c, d, e, f, g, h, t1, t2;
+	unsigned int i;
+
+	for (i = 0; i < 16; i++)
+		w[i] = get_be32(p + i * 4);
+	for (; i < 64; i++)
+		w[i] = w[i - 16] + (sdk_ror(w[i - 15], 7) ^ sdk_ror(w[i - 15], 18) ^ (w[i - 15] >> 3)) +
+			w[i - 7] + (sdk_ror(w[i - 2], 17) ^ sdk_ror(w[i - 2], 19) ^ (w[i - 2] >> 10));
+	a = s->h[0]; b = s->h[1]; c = s->h[2]; d = s->h[3];
+	e = s->h[4]; f = s->h[5]; g = s->h[6]; h = s->h[7];
+	for (i = 0; i < 64; i++) {
+		t1 = h + (sdk_ror(e, 6) ^ sdk_ror(e, 11) ^ sdk_ror(e, 25)) +
+			((e & f) ^ (~e & g)) + k[i] + w[i];
+		t2 = (sdk_ror(a, 2) ^ sdk_ror(a, 13) ^ sdk_ror(a, 22)) +
+			((a & b) ^ (a & c) ^ (b & c));
+		h = g; g = f; f = e; e = d + t1;
+		d = c; c = b; b = a; a = t1 + t2;
+	}
+	s->h[0] += a; s->h[1] += b; s->h[2] += c; s->h[3] += d;
+	s->h[4] += e; s->h[5] += f; s->h[6] += g; s->h[7] += h;
+}
+
+static void sdk_sha256_init(struct sdk_sha256 *s)
+{
+	static const uint32_t initial[8] = {
+		0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19
+	};
+
+	memset(s, 0, sizeof(*s));
+	memcpy(s->h, initial, sizeof(initial));
+}
+
+static void sdk_sha256_update(struct sdk_sha256 *s, const uint8_t *p, size_t size)
+{
+	s->bytes += size;
+	while (size) {
+		size_t n = 64 - s->used;
+
+		if (n > size)
+			n = size;
+		memcpy(s->block + s->used, p, n);
+		s->used += n;
+		p += n;
+		size -= n;
+		if (s->used == 64) {
+			sdk_sha256_block(s, s->block);
+			s->used = 0;
+		}
+	}
+}
+
+static void sdk_sha256_final(struct sdk_sha256 *s, uint8_t hash[32])
+{
+	uint64_t bits = s->bytes * 8;
+	uint8_t padding[128] = { 0x80 };
+	size_t n = s->used < 56 ? 56 - s->used : 120 - s->used;
+	unsigned int i;
+
+	for (i = 0; i < 8; i++)
+		padding[n + i] = (uint8_t)(bits >> (56 - i * 8));
+	sdk_sha256_update(s, padding, n + 8);
+	for (i = 0; i < 8; i++)
+		put_be32(hash + i * 4, s->h[i]);
+}
+
+/* Matches EN7580 rsa_verify(): a single chunk is hashed once; multiple
+ * chunks use SHA256(SHA256(chunk0) || SHA256(chunk1) || ...).
+ */
+static void sdk_secure_digest(const uint8_t *data, size_t size, uint8_t hash[32])
+{
+	struct sdk_sha256 chunk, aggregate;
+	size_t offset;
+
+	if (!size || size > SDK_TRX_LIMIT)
+		die("secure payload size is unsupported");
+	sdk_sha256_init(&aggregate);
+	for (offset = 0; offset < size; ) {
+		size_t n = size - offset;
+
+		if (n > SDK_HASH_CHUNK)
+			n = SDK_HASH_CHUNK;
+		sdk_sha256_init(&chunk);
+		sdk_sha256_update(&chunk, data + offset, n);
+		sdk_sha256_final(&chunk, hash);
+		if (size <= SDK_HASH_CHUNK)
+			return;
+		sdk_sha256_update(&aggregate, hash, 32);
+		offset += n;
+	}
+	sdk_sha256_final(&aggregate, hash);
+}
+
+static uint32_t sdk_get32(const uint8_t *p, bool big)
+{
+	return big ? get_be32(p) : get_le32(p);
+}
+
+struct sdk_secure_options {
+	uint32_t version;
+	bool big_endian, version_set;
+	const char *key, *signature, *signature_format, *verify_key;
+	const char *template, *rsa_pub, *rsa_info;
+};
+
+static size_t sdk_header_size(uint32_t version)
+{
+	if (version <= 1)
+		return SDK_SH_V1_SIZE;
+	if (version == 2)
+		return SDK_SH_V2_SIZE;
+	die("secure header version must be 0 (legacy V1), 1 or 2");
+	return 0;
+}
+
+/* OpenSSL is only needed for PEM signing/verification. All format handling,
+ * CRCs, chunked SHA256 and importing SDK signatures remain standalone C.
+ */
+static struct blob sdk_openssl(const char *key, const uint8_t *digest,
+			      const struct blob *signature, bool public_only)
+{
+	struct blob result = { 0 };
+	FILE *input = tmpfile(), *output = tmpfile(), *sigfile = NULL;
+	char input_path[64], output_path[64], sig_path[64];
+	char *args[24];
+	int n = 0, status;
+	pid_t child;
+	long length;
+
+	if (!input || !output)
+		die("cannot create RSA temporary files");
+	if (digest && (fwrite(digest, 1, 32, input) != 32 || fflush(input)))
+		die("cannot prepare RSA digest");
+	rewind(input);
+	snprintf(input_path, sizeof(input_path), "/proc/self/fd/%d", fileno(input));
+	snprintf(output_path, sizeof(output_path), "/proc/self/fd/%d", fileno(output));
+	args[n++] = "openssl";
+	if (!digest) {
+		args[n++] = "rsa";
+		if (public_only)
+			args[n++] = "-pubin";
+		else {
+			args[n++] = "-passin"; args[n++] = "pass:";
+		}
+		args[n++] = "-in"; args[n++] = (char *)key;
+		args[n++] = "-pubout";
+		args[n++] = "-outform"; args[n++] = "DER";
+	} else {
+		args[n++] = "pkeyutl";
+		args[n++] = signature ? "-verify" : "-sign";
+		if (signature)
+			args[n++] = "-pubin";
+		else {
+			args[n++] = "-passin"; args[n++] = "pass:";
+		}
+		args[n++] = "-inkey"; args[n++] = (char *)key;
+		args[n++] = "-pkeyopt"; args[n++] = "digest:sha256";
+		args[n++] = "-pkeyopt"; args[n++] = "rsa_padding_mode:pkcs1";
+		args[n++] = "-in"; args[n++] = input_path;
+		if (signature) {
+			sigfile = tmpfile();
+			if (!sigfile || fwrite(signature->data, 1, signature->len, sigfile) != signature->len ||
+			    fflush(sigfile))
+				die("cannot prepare RSA signature");
+			rewind(sigfile);
+			snprintf(sig_path, sizeof(sig_path), "/proc/self/fd/%d", fileno(sigfile));
+			args[n++] = "-sigfile"; args[n++] = sig_path;
+		}
+	}
+	args[n++] = "-out"; args[n++] = output_path;
+	args[n] = NULL;
+	child = fork();
+	if (child < 0)
+		die("cannot start OpenSSL");
+	if (!child) {
+		execvp(args[0], args);
+		perror("econet-image: OpenSSL");
+		_exit(127);
+	}
+	while (waitpid(child, &status, 0) < 0) {
+		if (errno != EINTR)
+			die("cannot wait for OpenSSL");
+	}
+	if (!WIFEXITED(status) || WEXITSTATUS(status))
+		die("RSA signing, key loading or signature verification failed");
+	if (!signature) {
+		if (fseek(output, 0, SEEK_END) || (length = ftell(output)) <= 0 || length > 2048)
+			die("unexpected OpenSSL output size");
+		result.len = (size_t)length;
+		result.data = malloc(result.len);
+		if (!result.data)
+			die("out of memory");
+		rewind(output);
+		if (fread(result.data, 1, result.len, output) != result.len)
+			die("cannot read OpenSSL output");
+	}
+	fclose(input);
+	fclose(output);
+	if (sigfile)
+		fclose(sigfile);
+	return result;
+}
+
+static bool sdk_der_element(const uint8_t **cursor, const uint8_t *end,
+			    uint8_t tag, const uint8_t **value, size_t *size)
+{
+	const uint8_t *p = *cursor;
+	size_t n, length;
+
+	if ((size_t)(end - p) < 2 || *p++ != tag)
+		return false;
+	length = *p++;
+	if (length & 0x80) {
+		n = length & 0x7f;
+		if (!n || n > 4 || n > (size_t)(end - p))
+			return false;
+		length = 0;
+		while (n--)
+			length = (length << 8) | *p++;
+	}
+	if (length > (size_t)(end - p))
+		return false;
+	*value = p;
+	*size = length;
+	*cursor = p + length;
+	return true;
+}
+
+static size_t sdk_check_pem_key(const char *key, bool public_only, uint32_t version)
+{
+	struct blob der = sdk_openssl(key, NULL, NULL, public_only);
+	const uint8_t *p = der.data, *v, *end = p + der.len, *rsa_end;
+	size_t size, modulus_size;
+
+	if (!sdk_der_element(&p, end, 0x30, &v, &size) || p != end)
+		die("invalid RSA public key DER");
+	p = v; end = v + size;
+	if (!sdk_der_element(&p, end, 0x30, &v, &size) ||
+	    !sdk_der_element(&p, end, 0x03, &v, &size) || p != end || size < 1 || *v)
+		die("invalid RSA public key bit string");
+	p = v + 1; end = v + size;
+	if (!sdk_der_element(&p, end, 0x30, &v, &size) || p != end)
+		die("invalid RSA modulus sequence");
+	p = v; rsa_end = v + size;
+	if (!sdk_der_element(&p, rsa_end, 0x02, &v, &modulus_size) || !modulus_size)
+		die("invalid RSA modulus");
+	if (*v == 0) {
+		v++; modulus_size--;
+	}
+	if (!modulus_size || !(v[0] & 0x80) || !(v[modulus_size - 1] & 1) ||
+	    (version <= 1 && modulus_size != 256) ||
+	    (version == 2 && modulus_size != 256 && modulus_size != 384 && modulus_size != 512))
+		die("unsupported RSA key size (v1: 2048; v2: 2048/3072/4096)");
+	if (!sdk_der_element(&p, rsa_end, 0x02, &v, &size) || p != rsa_end ||
+	    size != 3 || memcmp(v, "\x01\x00\x01", 3))
+		die("the SDK requires RSA exponent 65537");
+	free_blob(&der);
+	return modulus_size;
+}
+
+static int sdk_hex_digit(uint8_t c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+static struct blob sdk_read_signature(const char *path, const char *format)
+{
+	struct blob in = read_file(path), decoded = { 0 };
+	size_t i;
+	int high = -1;
+	bool hex = true;
+
+	decoded.data = malloc(in.len / 2 + 1);
+	if (!decoded.data)
+		die("out of memory");
+	for (i = 0; i < in.len; i++) {
+		int digit = sdk_hex_digit(in.data[i]);
+
+		if (in.data[i] == ' ' || in.data[i] == '\r' || in.data[i] == '\n' || in.data[i] == '\t')
+			continue;
+		if (digit < 0) { hex = false; break; }
+		if (high < 0) high = digit;
+		else { decoded.data[decoded.len++] = (uint8_t)(high * 16 + digit); high = -1; }
+	}
+	hex = hex && high < 0 && (decoded.len == 256 || decoded.len == 384 || decoded.len == 512);
+	if (!strcmp(format, "hex") || (!strcmp(format, "auto") && hex)) {
+		if (!hex)
+			die("invalid SDK hexadecimal signature");
+		free_blob(&in);
+		return decoded;
+	}
+	if (strcmp(format, "raw") && strcmp(format, "auto"))
+		die("signature format must be auto, raw or hex");
+	free_blob(&decoded);
+	return in;
+}
+
+static void sdk_fill_secure_header(uint8_t *header, const uint8_t *data, size_t size,
+				   const struct sdk_secure_options *o)
+{
+	struct blob signature = { 0 }, field = { 0 };
+	uint8_t digest[32];
+	size_t header_size = sdk_header_size(o->version);
+	bool big = o->big_endian;
+
+	if (!!o->key == !!o->signature)
+		die("select exactly one of --key or --signature");
+	if (!size || size > SDK_TRX_LIMIT)
+		die("invalid signed payload size");
+	if (o->template) {
+		field = read_file(o->template);
+		if (field.len != header_size || memcmp(field.data, "ECNT", 4) ||
+		    sdk_get32(field.data + 4, big) != o->version ||
+		    (o->version == 2 && sdk_get32(field.data + 8, big) != header_size))
+			die("template must be an exact secure header with matching version/endian");
+		memcpy(header, field.data, header_size);
+		free_blob(&field);
+	}
+	if (o->version == 2 && sdk_get32(header + 0x410, big) > 1)
+		die("unsupported secure-header AES mode");
+	if ((o->rsa_pub || o->rsa_info) && o->version != 2)
+		die("wrapped RSA key metadata requires secure header v2");
+	if (o->rsa_pub) {
+		field = read_file(o->rsa_pub);
+		if (field.len != 512)
+			die("--rsa-pub must contain exactly 512 bytes of SDK key material");
+		memcpy(header + 0x210, field.data, field.len);
+		free_blob(&field);
+	}
+	if (o->rsa_info) {
+		field = read_file(o->rsa_info);
+		if (field.len != 48)
+			die("--rsa-info must contain the 16-byte IV and 32-byte HMAC");
+		memcpy(header + 0x544, field.data, field.len);
+		free_blob(&field);
+	}
+	sdk_secure_digest(data, size, digest);
+	if (o->key) {
+		sdk_check_pem_key(o->key, false, o->version);
+		signature = sdk_openssl(o->key, digest, NULL, false);
+	} else {
+		signature = sdk_read_signature(o->signature, o->signature_format);
+	}
+	if ((o->version <= 1 && signature.len != 256) ||
+	    (o->version == 2 && signature.len != 256 && signature.len != 384 && signature.len != 512))
+		die("signature length is incompatible with secure-header version");
+	if (o->verify_key) {
+		sdk_check_pem_key(o->verify_key, true, o->version);
+		field = sdk_openssl(o->verify_key, digest, &signature, true);
+		free_blob(&field);
+	}
+	memcpy(header, "ECNT", 4);
+	put_native32(header + 4, o->version, big);
+	if (o->version <= 1) {
+		memcpy(header + 8, signature.data, signature.len);
+		put_native32(header + 0x108, (uint32_t)size + 4, big);
+		put_native32(header + 0x10c, 0, big);
+	} else {
+		put_native32(header + 8, (uint32_t)header_size, big);
+		put_native32(header + 12, (uint32_t)size + 4, big);
+		memset(header + 16, 0, 512);
+		memcpy(header + 16, signature.data, signature.len);
+	}
+	put_native32(header + header_size - 4,
+		     crc32_ieee(header, header_size - 4) ^ 0xffffffffu, big);
+	free_blob(&signature);
+}
+
+static bool sdk_secure_option(struct sdk_secure_options *o, int *i, int argc, char **argv)
+{
+	const char *arg = argv[*i];
+
+	if (!strcmp(arg, "--secure-version") || !strcmp(arg, "--version")) {
+		o->version = parse_u32(next_arg(i, argc, argv, arg));
+		o->version_set = true;
+		if (o->version > 2)
+			die("secure header version must be 0 (legacy V1), 1 or 2");
+	}
+	else if (!strcmp(arg, "--key"))
+		o->key = next_arg(i, argc, argv, arg);
+	else if (!strcmp(arg, "--signature"))
+		o->signature = next_arg(i, argc, argv, arg);
+	else if (!strcmp(arg, "--signature-format"))
+		o->signature_format = next_arg(i, argc, argv, arg);
+	else if (!strcmp(arg, "--verify-key"))
+		o->verify_key = next_arg(i, argc, argv, arg);
+	else if (!strcmp(arg, "--secure-template"))
+		o->template = next_arg(i, argc, argv, arg);
+	else if (!strcmp(arg, "--rsa-pub"))
+		o->rsa_pub = next_arg(i, argc, argv, arg);
+	else if (!strcmp(arg, "--rsa-info"))
+		o->rsa_info = next_arg(i, argc, argv, arg);
+	else if (!strcmp(arg, "--endian")) {
+		const char *value = next_arg(i, argc, argv, arg);
+
+		if (strcmp(value, "little") && strcmp(value, "big"))
+			die("endian must be little or big");
+		o->big_endian = !strcmp(value, "big");
+	} else
+		return false;
+	return true;
+}
+
+static int cmd_secure_digest(int argc, char **argv)
+{
+	const char *input = NULL, *output = NULL;
+	struct blob image;
+	uint32_t offset = 0, size = 0;
+	uint8_t digest[32];
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "--image")) input = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--output")) output = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--offset")) offset = parse_u32(next_arg(&i, argc, argv, argv[i]));
+		else if (!strcmp(argv[i], "--length")) size = parse_u32(next_arg(&i, argc, argv, argv[i]));
+		else { usage(stderr); return 2; }
+	}
+	if (!input || !output) { usage(stderr); return 2; }
+	image = read_file(input);
+	if (!size) {
+		if (offset >= image.len || image.len - offset > SDK_TRX_LIMIT)
+			die("invalid digest range");
+		size = (uint32_t)(image.len - offset);
+	}
+	if (!range_ok_size(offset, size, image.len))
+		die("digest range is outside the image");
+	sdk_secure_digest(image.data + offset, size, digest);
+	write_file(output, digest, sizeof(digest));
+	free_blob(&image);
+	return 0;
+}
+
+static int cmd_sheader(int argc, char **argv)
+{
+	struct sdk_secure_options options = { .signature_format = "auto" };
+	const char *input = NULL, *output = NULL;
+	struct blob image;
+	uint32_t offset = 0, length = 0, part = 0;
+	size_t header_size, start, end;
+	bool have_offset = false, have_length = false, have_part = false;
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "--image")) input = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--output")) output = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--offset")) {
+			offset = parse_u32(next_arg(&i, argc, argv, argv[i])); have_offset = true;
+		} else if (!strcmp(argv[i], "--length")) {
+			length = parse_u32(next_arg(&i, argc, argv, argv[i])); have_length = true;
+		} else if (!strcmp(argv[i], "--boot-part")) {
+			part = parse_u32(next_arg(&i, argc, argv, argv[i]));
+			have_part = true;
+		} else if (!sdk_secure_option(&options, &i, argc, argv)) { usage(stderr); return 2; }
+	}
+	if (!input || !output) { usage(stderr); return 2; }
+	image = read_file(input);
+	if (have_part) {
+		if (part < 1 || part > 2 || have_offset || have_length || image.len < 0x40000)
+			die("--boot-part requires a 256 KiB boot area and no explicit range");
+		offset = part == 1 ? 0 : 0x20000;
+	}
+	if (offset > image.len || image.len - offset < 8)
+		die("secure header is outside the image");
+	if (!options.version_set) {
+		if (memcmp(image.data + offset, "ECNT", 4))
+			die("provide --version for an uninitialized secure header");
+		options.version = sdk_get32(image.data + offset + 4, options.big_endian);
+	}
+	header_size = sdk_header_size(options.version);
+	if (!range_ok_size(offset, header_size, image.len))
+		die("secure header does not fit in the image");
+	/* Sign in place; never shift code/flash offsets or overwrite raw start.S. */
+	if (memcmp(image.data + offset, "ECNT", 4)) {
+		for (start = offset; start < offset + header_size; start++)
+			if (image.data[start] != 0 && image.data[start] != 0xff)
+				die("secure header slot is not reserved; this command does not prepend headers");
+		memset(image.data + offset, 0, header_size);
+	} else if (sdk_get32(image.data + offset + 4, options.big_endian) != options.version ||
+		   (options.version == 2 && sdk_get32(image.data + offset + 8, options.big_endian) != header_size)) {
+		die("existing secure header has a different version/size; relink the image first");
+	}
+	start = offset + header_size;
+	if (part) {
+		end = part == 1 ? CRC1_OFFSET : CRC2_OFFSET;
+		length = (uint32_t)(end - start);
+	} else if (!have_length) {
+		uint32_t declared = sdk_get32(image.data + offset + (options.version <= 1 ? 0x108 : 12),
+					     options.big_endian);
+
+		if (declared <= 4)
+			die("provide --length for an uninitialized secure header");
+		length = declared - 4;
+	}
+	if (!length || !range_ok_size(start, length, image.len))
+		die("signed payload range is outside the image");
+	sdk_fill_secure_header(image.data + offset, image.data + start, length, &options);
+	if (part) {
+		put_native32(image.data + CRC1_OFFSET, crc32_ieee(image.data, CRC1_OFFSET) ^ 0xffffffffu,
+			     options.big_endian);
+		put_native32(image.data + CRC2_OFFSET, crc32_ieee(image.data, CRC2_OFFSET) ^ 0xffffffffu,
+			     options.big_endian);
+	}
+	write_file(output, image.data, image.len);
+	free_blob(&image);
+	return 0;
+}
+
+static void sdk_string(uint8_t *dest, const char *value)
+{
+	size_t size = value ? strlen(value) : 0;
+
+	if (size > 32)
+		die("TRX strings must fit in 32 bytes");
+	if (size)
+		memcpy(dest, value, size);
+}
+
+static int cmd_trx(int argc, char **argv)
+{
+	struct sdk_secure_options options = { .signature_format = "auto" };
+	const char *paths[3] = { NULL }, *output = NULL;
+	const char *version = NULL, *customer = NULL, *model = NULL;
+	struct blob parts[3] = { { 0 } }, image = { 0 };
+	uint32_t magic = 0x32524448u, load = 0, alignment = 1;
+	size_t lengths[3] = { 0 }, header_size, payload_size = 0, padded_size, pos;
+	bool secure;
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "--kernel")) paths[0] = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--rootfs")) paths[1] = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--romfile")) paths[2] = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--output")) output = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--firmware-version")) version = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--customer-version")) customer = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--model")) model = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--load")) load = parse_u32(next_arg(&i, argc, argv, argv[i]));
+		else if (!strcmp(argv[i], "--align")) alignment = parse_u32(next_arg(&i, argc, argv, argv[i]));
+		else if (!strcmp(argv[i], "--magic")) {
+			const char *name = next_arg(&i, argc, argv, argv[i]);
+
+			if (!strcmp(name, "hdr0")) magic = 0x30524448u;
+			else if (!strcmp(name, "hdr1")) magic = 0x31524448u;
+			else if (!strcmp(name, "hdr2")) magic = 0x32524448u;
+			else if (!strcmp(name, "hdr3")) magic = 0x33524448u;
+			else die("TRX magic must be hdr0, hdr1, hdr2 or hdr3");
+		} else if (!sdk_secure_option(&options, &i, argc, argv)) { usage(stderr); return 2; }
+	}
+	if (!output || (!paths[0] && !paths[1] && !paths[2])) { usage(stderr); return 2; }
+	secure = options.version_set;
+	if (!secure && (options.key || options.signature || options.template || options.rsa_pub ||
+			options.rsa_info || options.verify_key))
+		die("specify --secure-version when signing a TRX image");
+	if (!alignment || alignment > 0x10000 || (alignment & (alignment - 1)))
+		die("alignment must be a power of two from 1 to 65536");
+	header_size = SDK_TRX_SIZE + (secure ? sdk_header_size(options.version) : 0);
+	for (i = 0; i < 3; i++) {
+		if (!paths[i]) continue;
+		parts[i] = read_file(paths[i]);
+		if (!parts[i].len || parts[i].len > SDK_TRX_LIMIT - header_size - payload_size)
+			die("TRX component is empty or exceeds the size limit");
+		lengths[i] = parts[i].len;
+		payload_size += parts[i].len;
+	}
+	padded_size = (header_size + payload_size + alignment - 1) & ~(size_t)(alignment - 1);
+	if (padded_size > SDK_TRX_LIMIT)
+		die("aligned TRX image exceeds the size limit");
+	/* Final alignment padding belongs to the last component and signed data. */
+	for (i = 2; i >= 0; i--) if (paths[i]) {
+		lengths[i] += padded_size - header_size - payload_size;
+		break;
+	}
+	image.len = padded_size;
+	image.data = calloc(1, image.len);
+	if (!image.data) die("out of memory");
+	put_native32(image.data, magic, options.big_endian);
+	put_native32(image.data + 4, (uint32_t)header_size, options.big_endian);
+	put_native32(image.data + 8, (uint32_t)image.len, options.big_endian);
+	sdk_string(image.data + 16, version);
+	sdk_string(image.data + 48, customer);
+	for (i = 0; i < 3; i++)
+		put_native32(image.data + 80 + i * 4, (uint32_t)lengths[i], options.big_endian);
+	sdk_string(image.data + 92, model);
+	put_native32(image.data + 124, load, options.big_endian);
+	pos = header_size;
+	for (i = 0; i < 3; i++) {
+		if (parts[i].len) memcpy(image.data + pos, parts[i].data, parts[i].len);
+		pos += parts[i].len;
+		free_blob(&parts[i]);
+	}
+	payload_size = image.len - header_size;
+	put_native32(image.data + 12, crc32_ieee(image.data + header_size, payload_size) ^ 0xffffffffu,
+		     options.big_endian);
+	if (secure)
+		sdk_fill_secure_header(image.data + SDK_TRX_SIZE, image.data + header_size, payload_size, &options);
+	write_file(output, image.data, image.len);
+	free_blob(&image);
+	return 0;
+}
+
+static int cmd_trx_crc(int argc, char **argv)
+{
+	struct blob image;
+	const char *input = NULL, *output = NULL;
+	uint32_t size = 0;
+	bool append = false, big = false;
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "--image")) input = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--output")) output = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--boot-size")) size = parse_u32(next_arg(&i, argc, argv, argv[i]));
+		else if (!strcmp(argv[i], "--append")) append = true;
+		else if (!strcmp(argv[i], "--endian")) {
+			const char *v = next_arg(&i, argc, argv, argv[i]);
+			if (strcmp(v, "little") && strcmp(v, "big")) die("endian must be little or big");
+			big = !strcmp(v, "big");
+		} else { usage(stderr); return 2; }
+	}
+	if (!input || !output || (append == (size != 0))) { usage(stderr); return 2; }
+	image = read_file(input);
+	if (append) {
+		uint8_t *p;
+		uint32_t crc = crc32_ieee(image.data, image.len) ^ 0xffffffffu;
+
+		if (!image.len || image.len > SDK_TRX_LIMIT) die("invalid CRC input size");
+		p = realloc(image.data, image.len + 4);
+		if (!p) die("out of memory");
+		image.data = p;
+		put_native32(p + image.len, crc, big);
+		image.len += 4;
+	} else {
+		if ((size != 0x10000 && size != 0x20000 && size != 0x40000) || image.len < size)
+			die("boot size must be 64, 128 or 256 KiB and fit in the image");
+		if (size == 0x40000) {
+			put_native32(image.data + CRC1_OFFSET, crc32_ieee(image.data, CRC1_OFFSET) ^ 0xffffffffu, big);
+			put_native32(image.data + CRC2_OFFSET, crc32_ieee(image.data, CRC2_OFFSET) ^ 0xffffffffu, big);
+		} else {
+			put_native32(image.data + size - 4, crc32_ieee(image.data, size - 4) ^ 0xffffffffu, big);
+		}
+	}
+	write_file(output, image.data, image.len);
+	free_blob(&image);
+	return 0;
+}
+
+/* Inspection is read-only. Report bad CRCs, but never follow unchecked lengths. */
+static int inspect_crc(const char *name, uint32_t stored, uint32_t calculated)
+{
+	printf("  %s: stored=0x%08" PRIx32 " calculated=0x%08" PRIx32 " [%s]\n",
+	       name, stored, calculated, stored == calculated ? "OK" : "BAD");
+	return stored != calculated;
+}
+
+static int inspect_error(const char *message)
+{
+	fprintf(stderr, "econet-image inspect: %s\n", message);
+	return 1;
+}
+
+static void inspect_string(const char *name, const uint8_t *p, size_t size)
+{
+	size_t i;
+	printf("  %s: \"", name);
+	for (i = 0; i < size && p[i]; i++) {
+		if (p[i] >= 32 && p[i] <= 126 && p[i] != '"' && p[i] != '\\')
+			putchar(p[i]);
+		else
+			printf("\\x%02x", p[i]);
+	}
+	puts("\"");
+}
+
+static void inspect_hex(const char *name, const uint8_t *p, size_t size)
+{
+	size_t i;
+	printf("  %s: ", name);
+	for (i = 0; i < size; i++) printf("%02x", p[i]);
+	putchar('\n');
+}
+
+static bool inspect_trx_magic(uint32_t magic)
+{
+	return (magic & 0x00ffffffu) == 0x00524448u &&
+	       (magic >> 24) >= '0' && (magic >> 24) <= '3';
+}
+
+static bool inspect_secure_magic(const uint8_t *p, size_t size)
+{
+	return size >= 8 && !memcmp(p, "ECNT", 4) &&
+	       (get_le32(p + 4) <= 2 ||
+		get_be32(p + 4) == 1 || get_be32(p + 4) == 2);
+}
+
+/* Legacy version zero has no endian marker. Prefer its header CRC, then a
+ * uniquely bounded image_len; do not silently guess on ambiguous input. */
+static bool inspect_secure_endian(const uint8_t *h, size_t available, bool *big)
+{
+	uint32_t crc, le, be;
+	bool le_ok, be_ok;
+	if (get_le32(h + 4) == 1 || get_le32(h + 4) == 2) { *big = false; return true; }
+	if (get_be32(h + 4) == 1 || get_be32(h + 4) == 2) { *big = true; return true; }
+	if (get_le32(h + 4) || available < SDK_SH_V1_SIZE) return false;
+	crc = crc32_ieee(h, SDK_SH_V1_SIZE - 4) ^ 0xffffffffu;
+	le_ok = get_le32(h + SDK_SH_V1_SIZE - 4) == crc;
+	be_ok = get_be32(h + SDK_SH_V1_SIZE - 4) == crc;
+	if (le_ok != be_ok) { *big = be_ok; return true; }
+	le = get_le32(h + 0x108); be = get_be32(h + 0x108);
+	le_ok = le > 4 && le - 4 <= SDK_TRX_LIMIT && le - 4 <= available - SDK_SH_V1_SIZE;
+	be_ok = be > 4 && be - 4 <= SDK_TRX_LIMIT && be - 4 <= available - SDK_SH_V1_SIZE;
+	if (le_ok != be_ok) { *big = be_ok; return true; }
+	return false;
+}
+
+static int inspect_secure(const struct blob *image, size_t offset, bool big,
+			  const char *key, size_t expected_payload)
+{
+	const uint8_t *h;
+	uint32_t version, declared;
+	size_t header_size, payload_size, signature_slot;
+	uint8_t digest[32];
+	int bad;
+
+	if (!range_ok_size(offset, 8, image->len))
+		return inspect_error("truncated secure header");
+	h = image->data + offset;
+	version = sdk_get32(h + 4, big);
+	if (memcmp(h, "ECNT", 4) || version > 2)
+		return inspect_error("invalid secure magic/version or wrong endian");
+	header_size = sdk_header_size(version);
+	printf("Secure header V%u at 0x%zx (%s endian; version field=%" PRIu32 "%s)\n",
+	       version == 2 ? 2 : 1, offset, big ? "big" : "little", version,
+	       version == 0 ? "; legacy" : "");
+	printf("  Header size: %zu\n", header_size);
+	if (!range_ok_size(offset, header_size, image->len))
+		return inspect_error("truncated secure header");
+	if (version == 2 && sdk_get32(h + 8, big) != header_size)
+		return inspect_error("invalid V2 header length");
+	declared = sdk_get32(h + (version <= 1 ? 0x108 : 12), big);
+	printf("  image_len: %" PRIu32 " (includes four CRC bytes)\n", declared);
+	bad = inspect_crc("Header CRC", sdk_get32(h + header_size - 4, big),
+			  crc32_ieee(h, header_size - 4) ^ 0xffffffffu);
+	if (declared <= 4 || declared - 4 > SDK_TRX_LIMIT ||
+	    !range_ok_size(offset + header_size, declared - 4, image->len))
+		return inspect_error("signed payload range is outside the image");
+	payload_size = declared - 4;
+	printf("  Signed payload: offset=0x%zx size=%zu\n", offset + header_size, payload_size);
+	if (expected_payload && payload_size != expected_payload)
+		bad |= inspect_error("secure length does not match the enclosing payload");
+	signature_slot = version <= 1 ? 256 : 512;
+	printf("  Signature slot: %zu bytes (RSA size requires a public key)\n", signature_slot);
+	if (version == 2) {
+		uint32_t aes = sdk_get32(h + 0x410, big);
+		printf("  AES mode: %" PRIu32 "\n", aes);
+		if (aes > 1) bad |= inspect_error("unsupported AES mode");
+		inspect_hex("RSA IV", h + 0x544, 16);
+		inspect_hex("RSA HMAC", h + 0x554, 32);
+		/* A fingerprint identifies opaque SDK key material without interpreting it. */
+		{
+			struct sdk_sha256 hash;
+			sdk_sha256_init(&hash);
+			sdk_sha256_update(&hash, h + 0x210, 512);
+			sdk_sha256_final(&hash, digest);
+			inspect_hex("RSA key material SHA256", digest, sizeof(digest));
+		}
+	}
+	sdk_secure_digest(image->data + offset + header_size, payload_size, digest);
+	inspect_hex("SDK payload digest", digest, sizeof(digest));
+	if (key) {
+		struct blob signature = { (uint8_t *)h + (version <= 1 ? 8 : 16),
+					 sdk_check_pem_key(key, true, version) };
+		struct blob result = sdk_openssl(key, digest, &signature, true);
+		free_blob(&result);
+		printf("  RSA signature: OK (%zu bits; supplied public key)\n", signature.len * 8);
+	} else {
+		puts("  RSA signature: NOT CHECKED (use --verify-key)");
+	}
+	return bad;
+}
+
+static int inspect_ecnt(const struct blob *image, size_t offset)
+{
+	const uint8_t *h;
+	uint8_t copy[ECONET_BOOT_HEADER_V2];
+	uint32_t version, payload_offset, size, comp = 0;
+	size_t header_size;
+	struct blob view;
+	int bad;
+
+	if (!range_ok_size(offset, ECONET_BOOT_HEADER_SIZE, image->len))
+		return inspect_error("truncated ECNT descriptor");
+	h = image->data + offset;
+	version = get_be32(h + 4);
+	if (get_be32(h) != ECONET_BOOT_MAGIC || (version != 1 && version != 2))
+		return inspect_error("invalid ECNT descriptor magic/version");
+	header_size = version == 1 ? ECONET_BOOT_HEADER_SIZE : ECONET_BOOT_HEADER_V2;
+	if (!range_ok_size(offset, header_size, image->len))
+		return inspect_error("truncated ECNT v2 descriptor");
+	payload_offset = get_be32(h + 8); size = get_be32(h + 12);
+	printf("ECNT loader V%" PRIu32 " at 0x%zx (big endian)\n", version, offset);
+	printf("  Header size: %zu\n  Payload: offset=0x%zx size=%" PRIu32 "\n",
+	       header_size, offset + payload_offset, size);
+	printf("  Load: 0x%08" PRIx32 "\n  Entry: 0x%08" PRIx32 "\n",
+	       get_be32(h + 16), get_be32(h + 20));
+	memcpy(copy, h, header_size); memset(copy + 28, 0, 4);
+	bad = inspect_crc("Header CRC", get_be32(h + 28), crc32_ieee(copy, header_size));
+	if (version == 2) comp = get_be32(h + 32);
+	printf("  Compression: %s (%" PRIu32 ")\n",
+	       comp == 0 ? "none" : comp == 1 ? "gzip" : comp == 2 ? "lzma" : "unknown", comp);
+	if (version == 2) {
+		printf("  Unpacked size: %" PRIu32 "\n  Unpacked CRC: 0x%08" PRIx32 "\n",
+		       get_be32(h + 36), get_be32(h + 40));
+		puts("  Unpacked CRC is metadata only; inspect does not decompress.");
+	}
+	if (payload_offset < header_size || !size ||
+	    !range_ok_size(payload_offset, size, image->len - offset))
+		return inspect_error("ECNT payload range is outside the image");
+	bad |= inspect_crc("Stored payload CRC", get_be32(h + 24),
+			   crc32_ieee(h + payload_offset, size));
+	view.data = (uint8_t *)h; view.len = image->len - offset;
+	if (validate_ecnt(&view, true)) bad |= inspect_error("invalid ECNT metadata");
+	return bad;
+}
+
+static int inspect_trx(const struct blob *image, size_t offset, bool big, const char *key)
+{
+	const uint8_t *h;
+	uint32_t magic, header, total;
+	uint64_t sum = 0;
+	const char *names[] = { "Kernel", "Rootfs", "Romfile" };
+	size_t position;
+	int i, bad;
+
+	if (!range_ok_size(offset, SDK_TRX_SIZE, image->len))
+		return inspect_error("truncated TRX header");
+	h = image->data + offset;
+	magic = sdk_get32(h, big); header = sdk_get32(h + 4, big); total = sdk_get32(h + 8, big);
+	if (!inspect_trx_magic(magic)) return inspect_error("invalid TRX magic or wrong endian");
+	printf("TRX HDR%c at 0x%zx (%s endian)\n", (int)(magic >> 24), offset, big ? "big" : "little");
+	printf("  Header size: %" PRIu32 "\n  Total size: %" PRIu32 "\n", header, total);
+	inspect_string("Firmware version", h + 16, 32);
+	inspect_string("Customer version", h + 48, 32);
+	inspect_string("Model", h + 92, 32);
+	printf("  Load: 0x%08" PRIx32 "\n  SA flag: %" PRIu32 "\n  SA length: %" PRIu32 "\n",
+	       sdk_get32(h + 124, big), sdk_get32(h + 128, big), sdk_get32(h + 132, big));
+	position = offset + header;
+	for (i = 0; i < 3; i++) {
+		uint32_t size = sdk_get32(h + 80 + i * 4, big);
+		printf("  %s: offset=0x%zx size=%" PRIu32 "\n", names[i], position, size);
+		sum += size; position += size;
+	}
+	if (header < SDK_TRX_SIZE || total <= header || total > SDK_TRX_LIMIT ||
+	    !range_ok_size(offset, total, image->len))
+		return inspect_error("invalid/truncated TRX length");
+	bad = inspect_crc("Payload CRC", sdk_get32(h + 12, big),
+			  crc32_ieee(h + header, total - header) ^ 0xffffffffu);
+	if (sum != total - header) bad |= inspect_error("TRX component lengths do not partition the payload");
+	printf("  Trailing bytes: %zu\n", image->len - offset - total);
+	if (header == SDK_TRX_SIZE) {
+		puts("  Secure header: absent");
+		if (key) bad |= inspect_error("TRX has no signature to verify");
+	} else if (header == SDK_TRX_SIZE + SDK_SH_V1_SIZE || header == SDK_TRX_SIZE + SDK_SH_V2_SIZE) {
+		uint32_t version = sdk_get32(h + SDK_TRX_SIZE + 4, big);
+		if ((header == SDK_TRX_SIZE + SDK_SH_V1_SIZE && version > 1) ||
+		    (header == SDK_TRX_SIZE + SDK_SH_V2_SIZE && version != 2))
+			return inspect_error("TRX and secure-header sizes disagree");
+		/* Limit the nested parser to the declared TRX, not its trailing bytes. */
+		struct blob bounded = { image->data, offset + total };
+		bad |= inspect_secure(&bounded, offset + SDK_TRX_SIZE, big, key, total - header);
+	} else {
+		bad |= inspect_error("unsupported extended TRX header length");
+	}
+	return bad;
+}
+
+static int inspect_tcboot(const struct blob *image, bool big,
+			  const struct tcboot_cfg *cfg, const char *key)
+{
+	bool secure = inspect_secure_magic(image->data, image->len);
+	int bad = 0;
+	unsigned int i;
+	printf("TCBoot (%s endian%s%s)\n", big ? "big" : "little", cfg ? "; " : "", cfg ? cfg->soc : "");
+	if (secure) {
+		uint32_t version = sdk_get32(image->data + 4, big);
+		if (version > 2) return inspect_error("wrong secure boot endian");
+		bad |= inspect_secure(image, 0, big, key, CRC1_OFFSET - sdk_header_size(version));
+		if (image->len >= 0x40000 && inspect_secure_magic(image->data + 0x20000, image->len - 0x20000)) {
+			version = sdk_get32(image->data + 0x20004, big);
+			if (version > 2) return inspect_error("wrong second secure boot endian");
+			bad |= inspect_secure(image, 0x20000, big, key,
+					      CRC2_OFFSET - 0x20000 - sdk_header_size(version));
+		}
+	} else {
+		if (image->len < 32 || memcmp(image->data + TCBOOT_MAGIC_OFFSET, "6578", 4))
+			return inspect_error("invalid/truncated TCBoot magic");
+		printf("  Magic: 6578\n  Payload start: 0x%08" PRIx32 "\n  Payload end: 0x%08" PRIx32 "\n",
+		       sdk_get32(image->data + 0x18, big), sdk_get32(image->data + 0x1c, big));
+		if (key) bad |= inspect_error("raw TCBoot has no secure header to verify");
+	}
+	/* The raw 128/256 KiB variants require the caller's SoC to select CRC slots. */
+	if (secure || cfg) {
+		unsigned int count = cfg ? cfg->crc_count : 2;
+		for (i = 0; i < count; i++) {
+			size_t off = cfg ? cfg->crc_offsets[i] : (i ? CRC2_OFFSET : CRC1_OFFSET);
+			char name[48];
+			if (!range_ok_size(off, 4, image->len)) {
+				bad |= inspect_error("boot CRC slot is outside the image"); continue;
+			}
+			snprintf(name, sizeof(name), "Boot CRC at 0x%zx", off);
+			bad |= inspect_crc(name, sdk_get32(image->data + off, big),
+					   crc32_ieee(image->data, off) ^ 0xffffffffu);
+		}
+	} else {
+		puts("  Boot CRC: NOT CHECKED (select --soc)");
+	}
+	if (image->len >= FLASH_PAYLOAD + 8 &&
+	    get_be32(image->data + FLASH_PAYLOAD) == ECONET_BOOT_MAGIC &&
+	    (get_be32(image->data + FLASH_PAYLOAD + 4) == 1 ||
+	     get_be32(image->data + FLASH_PAYLOAD + 4) == 2) &&
+	    !secure)
+		bad |= inspect_ecnt(image, FLASH_PAYLOAD);
+	return bad;
+}
+
+static int cmd_inspect(int argc, char **argv)
+{
+	const char *input = NULL, *format = "auto", *key = NULL, *soc = NULL;
+	const struct tcboot_cfg *cfg = NULL;
+	struct blob image;
+	uint32_t offset = 0;
+	bool big = false, have_endian = false;
+	const uint8_t *p;
+	size_t available;
+	int i, bad;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "--image")) input = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--format")) format = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--offset")) offset = parse_u32(next_arg(&i, argc, argv, argv[i]));
+		else if (!strcmp(argv[i], "--verify-key")) key = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--soc")) soc = next_arg(&i, argc, argv, argv[i]);
+		else if (!strcmp(argv[i], "--endian")) {
+			const char *value = next_arg(&i, argc, argv, argv[i]);
+			if (strcmp(value, "little") && strcmp(value, "big")) die("endian must be little or big");
+			big = !strcmp(value, "big"); have_endian = true;
+		} else { usage(stderr); return 2; }
+	}
+	if (!input) { usage(stderr); return 2; }
+	if (strcmp(format, "auto") && strcmp(format, "trx") && strcmp(format, "sheader") &&
+	    strcmp(format, "ecnt") && strcmp(format, "tcboot")) die("unsupported inspect format");
+	if (soc) {
+		cfg = find_tcboot_cfg(soc);
+		if (!cfg) die("unsupported inspect SoC");
+		if (have_endian && big != cfg->big_endian) die("endian conflicts with selected SoC");
+		big = cfg->big_endian; have_endian = true;
+	}
+	image = read_file(input);
+	if (!range_ok_size(offset, 4, image.len)) { free_blob(&image); return inspect_error("offset outside image or truncated magic"); }
+	p = image.data + offset; available = image.len - offset;
+	printf("Image: %s\nFile size: %zu bytes\n", input, image.len);
+	if (!strcmp(format, "auto")) {
+		if (inspect_trx_magic(get_le32(p)) || inspect_trx_magic(get_be32(p))) format = "trx";
+		else if (available >= 32 && !memcmp(p + TCBOOT_MAGIC_OFFSET, "6578", 4)) format = "tcboot";
+		else if (available >= ECONET_BOOT_HEADER_SIZE && get_be32(p) == ECONET_BOOT_MAGIC &&
+			 (get_be32(p + 4) == 1 || get_be32(p + 4) == 2) &&
+			 get_be32(p + 8) >= ECONET_BOOT_HEADER_SIZE && get_be32(p + 8) <= 0x1000 &&
+			 !(get_be32(p + 4) == 2 && get_be32(p + 8) == SDK_SH_V2_SIZE)) format = "ecnt";
+		else if (inspect_secure_magic(p, available)) {
+			format = available >= 0x40000 && inspect_secure_magic(p + 0x20000, available - 0x20000) ? "tcboot" : "sheader";
+		} else { free_blob(&image); return inspect_error("unknown format (use --format/--offset)"); }
+	}
+	if (!have_endian) {
+		if (!strcmp(format, "trx")) big = inspect_trx_magic(get_be32(p));
+		else if (inspect_secure_magic(p, available)) {
+			if (!inspect_secure_endian(p, available, &big)) {
+				free_blob(&image); return inspect_error("legacy secure-header endian is ambiguous; select --endian");
+			}
+		}
+		else if (!strcmp(format, "tcboot")) { free_blob(&image); return inspect_error("raw TCBoot requires --soc or --endian"); }
+	}
+	if (!strcmp(format, "tcboot")) {
+		if (offset) bad = inspect_error("TCBoot inspection requires offset zero");
+		else bad = inspect_tcboot(&image, big, cfg, key);
+	} else if (cfg) bad = inspect_error("--soc is only valid for TCBoot");
+	else if (!strcmp(format, "trx")) bad = inspect_trx(&image, offset, big, key);
+	else if (!strcmp(format, "sheader")) bad = inspect_secure(&image, offset, big, key, 0);
+	else if (key) bad = inspect_error("ECNT loader descriptors do not contain RSA signatures");
+	else if (have_endian && !big) bad = inspect_error("ECNT loader descriptors are big endian");
+	else bad = inspect_ecnt(&image, offset);
+	free_blob(&image);
+	return bad ? 1 : 0;
+}
+
 static int selftest_crc(void)
 {
 	static const char s[] = "123456789";
@@ -2316,6 +3360,17 @@ int main(int argc, char **argv)
 		usage(stderr);
 		return 2;
 	}
+	if (!strcmp(argv[1], "trx"))
+		return cmd_trx(argc - 2, argv + 2);
+	if (!strcmp(argv[1], "inspect"))
+		return cmd_inspect(argc - 2, argv + 2);
+	if (!strcmp(argv[1], "sheader"))
+		return cmd_sheader(argc - 2, argv + 2);
+	if (!strcmp(argv[1], "trx-crc"))
+		return cmd_trx_crc(argc - 2, argv + 2);
+	if (!strcmp(argv[1], "secure-digest"))
+		return cmd_secure_digest(argc - 2, argv + 2);
+
 	if (!strcmp(argv[1], "chainloader"))
 		return cmd_chainloader(argc - 2, argv + 2);
 	if (!strcmp(argv[1], "flash"))

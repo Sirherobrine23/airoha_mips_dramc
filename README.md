@@ -11,7 +11,7 @@ outside the firmware build (for example in the OpenWrt image pipeline).
 - `en751221`
 - `en751627` (DRAMC payload currently comes from the preserved vendor binary)
 - `en7528`
-- `en7580` (DRAMC reconstruction is still WIP)
+- `en7580` (C DRAMC port; experimental, hardware validation pending)
 
 ## Build
 
@@ -183,9 +183,10 @@ make LLVM=1 en751627
 make LLVM=1 en7528
 ```
 
-The current EN7580 reconstruction uses `R_MIPS16_26` `.reloc` directives which
-LLVM's integrated MIPS assembler does not implement; build that DRAMC payload
-with GNU binutils for now.  Its standalone chainload stage itself is LLVM-safe.
+EN7580 now builds its DRAMC routines from C and no longer needs MIPS16
+section relocations. GNU GCC/binutils is the validated toolchain for this
+port; see `dramc/en7580/README.rst` for its optional QEMU comparison test
+and the remaining hardware-validation limits.
 
 ## Standalone `tcboot.bin`
 

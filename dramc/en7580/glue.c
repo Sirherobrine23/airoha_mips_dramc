@@ -7,8 +7,7 @@
  * path are left to U-Boot after DRAM is usable.
  */
 
-typedef unsigned char u8;
-typedef unsigned int u32;
+#include "en7580_ddr.h"
 #define REG32(addr)	(*(volatile u32 *)(addr))
 
 #define EN7580_SYS_GLOBAL_PARM	0xbfb00284u
@@ -20,7 +19,7 @@ typedef unsigned int u32;
 
 extern void init_system(int bootrom_ext);
 
-void *memset(void *dst, int c, unsigned long len)
+void *memset(void *dst, int c, ulong len)
 {
 	u8 *p = dst;
 
@@ -55,7 +54,7 @@ void prom_puts(const char *str)
 	}
 }
 
-void prom_print_hex(unsigned long val, int len)
+void prom_print_hex(ulong val, int len)
 {
 	int i;
 
@@ -66,7 +65,7 @@ void prom_print_hex(unsigned long val, int len)
 	}
 }
 
-void prom_print_dec(unsigned long val)
+void prom_print_dec(ulong val)
 {
 	char buf[11];
 	int i = sizeof(buf);

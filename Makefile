@@ -54,6 +54,11 @@ test-inspect: $(HOST_TOOL)
 test-compression: $(HOST_TOOL)
 	@HOSTCC="$(HOSTCC)" python3 "$(SRCTREE)/tests/compression.py" "$(HOST_TOOL)"
 
+test-en7580-c:
+	@python3 "$(SRCTREE)/tests/en7580/compare.py"
+
+.PHONY: test-en7580-c
+
 test-mips-compression:
 	@python3 "$(SRCTREE)/tests/mips-compression.py"
 

@@ -120,7 +120,7 @@ int en7512_dramc_init(void)
 	else
 		prom_puts("BGA IC\n");
 
-	xtal = VPint(CR_AHB_HWCONF) & 1;
+	xtal = readl(CR_AHB_HWCONF) & 1;
 	prom_puts("Xtal: ");
 	if (xtal == 1)
 		prom_puts("25Mhz");
@@ -130,7 +130,7 @@ int en7512_dramc_init(void)
 
 	if (dram_type == DDR2) {
 		prom_puts("DDR2 init.\n");
-		VPint(0xbfb00040) = 0;
+		readl(0xbfb00040) = 0;
 		DELAY(200);
 		WRITE(0xfc, 0x07110000);
 		if (PKG_type == KGD) {
@@ -200,10 +200,10 @@ int en7512_dramc_init(void)
 		WRITE(0xf8, 0xedcb000f);
 		WRITE(0x1d8, 0x00c80008);
 		WRITE(0x18, 0x31313131);
-		VPint(0xbfb00074) = 0x104;
+		readl(0xbfb00074) = 0x104;
 	} else {
 		prom_puts("DDR3 init.\n");
-		VPint(0xbfb00040) = 0;
+		readl(0xbfb00040) = 0;
 		DELAY(200);
 		WRITE(0xfc, 0x07110000);
 		if (PKG_type == KGD) {
@@ -272,7 +272,7 @@ int en7512_dramc_init(void)
 		WRITE(0xf8, 0xedcb000f);
 		WRITE(0x1d8, 0x00c80008);
 		WRITE(0x18, 0x31313131);
-		VPint(0xbfb00074) = 0x105;
+		readl(0xbfb00074) = 0x105;
 	}
 	DELAY(2);
 	prom_puts("DRAMC init done. \n");

@@ -1,0 +1,15 @@
+{
+  "clangd.path": "clangd",
+  "clangd.arguments": ["--enable-config", "--background-index"],
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "[c]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+  },
+  "[cpp]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+  },
+  "files.associations": {
+    "*.h": "c",
+    ".clangd": "yaml",
+  },
+}

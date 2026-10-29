@@ -6,6 +6,7 @@ SUBLEVEL =
 EXTRAVERSION =
 
 SRCTREE := $(abspath $(CURDIR))
+PROJECT_INCLUDES := -I"$(SRCTREE)/includes"
 GIT_COMMIT = $(shell git -C "$(SRCTREE)" rev-parse --verify HEAD 2>/dev/null)
 BUILD_DATE = $(shell date +"%d-%m-%Y %H:%M:%S %z")
 
@@ -18,6 +19,7 @@ LLVM ?= 0
 EXPERIMENTAL_SOCS ?= 0
 HOSTCC ?= cc
 HOSTCFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
+CLANGD_SOC ?= en7528
 HOST_TOOL := $(abspath $(O))/host/econet-image
 
 # Keep SOC as a user-facing selector for `make <type> SOC=<soc>`.  Builders
@@ -39,16 +41,20 @@ all: $(BUILD_DEVICES) bootext recovery tcboot
 
 hosttools: $(HOST_TOOL)
 
+.PHONY: clangd
+clangd:
+	@python3 "$(SRCTREE)/tools/clangd.py" --soc "$(CLANGD_SOC)"
+
 $(HOST_TOOL): $(SRCTREE)/tools/econet-image.c $(SRCTREE)/flash/ecnt.h
 	@mkdir -p "$(dir $@)"
 	@tmp="$@.$$$$.tmp"; \
-		$(HOSTCC) $(HOSTCFLAGS) "$<" -o "$$tmp" && mv -f "$$tmp" "$@"
+		$(HOSTCC) $(HOSTCFLAGS) $(PROJECT_INCLUDES) "$<" -o "$$tmp" && mv -f "$$tmp" "$@"
 
 test: $(HOST_TOOL)
 	@"$(HOST_TOOL)" selftest
 
 test-inspect: $(HOST_TOOL)
-	@$(HOSTCC) $(HOSTCFLAGS) "$(SRCTREE)/tests/inspect.c" -o "$(abspath $(O))/host/test-inspect"
+	@$(HOSTCC) $(HOSTCFLAGS) $(PROJECT_INCLUDES) "$(SRCTREE)/tests/inspect.c" -o "$(abspath $(O))/host/test-inspect"
 	@"$(abspath $(O))/host/test-inspect" "$(HOST_TOOL)"
 
 test-compression: $(HOST_TOOL)
@@ -58,6 +64,11 @@ test-en7580-c:
 	@python3 "$(SRCTREE)/tests/en7580/compare.py"
 
 .PHONY: test-en7580-c
+
+test-en7512:
+	@LLVM="$(LLVM)" python3 "$(SRCTREE)/tests/en7512/compare.py"
+
+.PHONY: test-en7512
 
 test-mips-compression:
 	@python3 "$(SRCTREE)/tests/mips-compression.py"
@@ -85,6 +96,10 @@ help:
 		'' \
 		'Use LLVM/Clang:' \
 		'  make LLVM=1 en7528' \
+		'' \
+		'Generate clangd editor commands (no firmware build):' \
+		'  make clangd' \
+		'  make clangd CLANGD_SOC=en751221' \
 		'' \
 		'Standalone boot extension:' \
 		'  make en7528-bootext' \

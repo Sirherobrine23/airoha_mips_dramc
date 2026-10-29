@@ -293,11 +293,11 @@ int main(void)
 	prom_puts("EN751221 DRAMC v1.2.2 - " PLAIN_VERSION "\r\n\r\n");
 
 	int fail = 0, i;
-	if ((VPint(0xbfb0005c) & 0xffff) == 1) {
+	if ((readl(0xbfb0005c) & 0xffff) == 1) {
 		if (isEN7526D || isEN7513) {
 			dram_type = DDR3;
 			PKG_type = BGA1;
-		} else if (!((VPint(CR_AHB_HWCONF) >> 4) & 1)) {
+		} else if (!((readl(CR_AHB_HWCONF) >> 4) & 1)) {
 			dram_type = DDR3;
 			PKG_type = BGA2;
 		} else {
@@ -319,7 +319,7 @@ int main(void)
 				PKG_type = BGA1;
 			else
 				PKG_type = BGA2;
-			dram_type = (VPint(CR_AHB_HWCONF) >> 4) & 1;
+			dram_type = (readl(CR_AHB_HWCONF) >> 4) & 1;
 		}
 	}
 
@@ -345,7 +345,7 @@ int main(void)
 		prom_print_dec(opt_dle_value);
 		prom_puts("\n");
 		prom_puts("%DRAMC calibration fail\n\r");
-		VPint(0xbfb00040) |= 1 << 31;
+		readl(0xbfb00040) |= 1 << 31;
 		fail = 1;
 	}
 	if (PKG_type == KGD && EFUSE_Fix32MB)

@@ -46,66 +46,7 @@ typedef signed char s8;
 #define ADDR_READ_REG(addr)     MMIO32(addr)
 #define ADDR_WRITE_REG(v,addr)  do { MMIO32(addr) = (u32)(v); } while (0)
 
-#define DRAMC_ACTIM0            0x000
-#define DRAMC_CONF1             0x004
-#define DRAMC_CONF2             0x008
-#define DRAMC_PADCTL1           0x00c
-#define DRAMC_PADCTL2           0x010
-#define DRAMC_PADCTL3           0x014
-#define DRAMC_R0DELDLY          0x018
-#define DRAMC_DLLCONF           0x028
-#define DRAMC_TEST2_1           0x03c
-#define DRAMC_TEST2_2           0x040
-#define DRAMC_TEST2_3           0x044
-#define DRAMC_TEST2_4           0x048
-#define DRAMC_DDR2CTL           0x07c
-#define DRAMC_MRS               0x088
-#define DRAMC_CLK1DELAY         0x08c
-#define DRAMC_IOCTL             0x090
-#define DRAMC_R0DQSIEN          0x094
-#define DRAMC_DRVCTL0           0x0b8
-#define DRAMC_DRVCTL1           0x0bc
-#define DRAMC_MCKDLY            0x0d8
-#define DRAMC_DQSCTL0           0x0dc
-#define DRAMC_DQSCTL1           0x0e0
-#define DRAMC_PADCTL4           0x0e4
-#define DRAMC_PHYCTL1           0x0f0
-#define DRAMC_GDDR3CTL1         0x0f4
-#define DRAMC_PADCTL7           0x0f8
-#define DRAMC_MISCTL0           0x0fc
-#define DRAMC_RKCFG             0x110
-#define DRAMC_DQSGCTL           0x124
-#define DRAMC_CLKENCTL          0x130
-#define DRAMC_ARBCTL0           0x168
-#define DRAMC_DQSCAL0           0x1c0
-#define DRAMC_DM_MONITOR        0x1d8
-#define DRAMC_PD_CTRL           0x1dc
-#define DRAMC_LPDDR2            0x1e0
-#define DRAMC_SPCMD             0x1e4
-#define DRAMC_ACTIM1            0x1e8
-#define DRAMC_PERFCTL0          0x1ec
-#define DRAMC_DQODLY1           0x200
-#define DRAMC_DQODLY2           0x204
-#define DRAMC_DQODLY3           0x208
-#define DRAMC_DQODLY4           0x20c
-#define DRAMC_DQIDLY1           0x210
-#define DRAMC_DQIDLY2           0x214
-#define DRAMC_DQIDLY3           0x218
-#define DRAMC_DQIDLY4           0x21c
-#define DRAMC_CMP_ERR           0x370
-#define DRAMC_SPCMDRESP         0x3b8
-#define DRAMC_DQSGNWCNT0        0x3c0
-#define DRAMC_TESTRPT           0x3fc
-#define DRAMC_MEMPLL0           0x600
-#define DRAMC_MEMPLL1           0x604
-#define DRAMC_MEMPLL2           0x608
-#define DRAMC_MEMPLL3           0x60c
-#define DRAMC_MEMPLL5           0x614
-#define DRAMC_MEMPLL6           0x618
-#define DRAMC_MEMPLL7           0x61c
-#define DRAMC_MEMPLL9           0x624
-#define DRAMC_MEMPLL12          0x630
-#define DRAMC_MEMPLL_DIVIDER    0x640
+#include "dramc/regs.h"
 
 #define DDR3                    0
 #define DDR2                    1
@@ -139,20 +80,6 @@ typedef signed char s8;
 #define DQS_GW_WORDS_PER_COARSE 3
 #define DQS_GW_WORDS            45
 #define HW_DQS_GW_COUNTER       0x78787878u
-
-#define DRAMC_TA1_ENABLE         BIT(29)
-#define DRAMC_TA2_READ_ENABLE    BIT(30)
-#define DRAMC_TA2_WRITE_ENABLE   BIT(31)
-#define DRAMC_TA2_RW_ENABLE      (BIT(30) | BIT(31))
-#define DRAMC_TEST_DM_CMP_CPT    BIT(10)
-#define DRAMC_TEST_DM_CMP_ERR    BIT(14)
-
-struct ddr_test_case {
-    int (*fn)(u32 start, u32 len, void *arg);
-    u32 start;
-    u32 len;
-    void *arg;
-};
 
 extern void pause_polling(u32 count);
 extern void time_polling_init(void);

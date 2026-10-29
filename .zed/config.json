@@ -17,13 +17,21 @@
 			"show_edit_predictions": false,
 			"tab_size": 4,
 			"formatter": "language_server",
-			"hard_tabs": true
+			"hard_tabs": true,
+			"enable_language_server": true,
+			"language_servers": [
+				"clangd"
+			]
 		},
 		"C": {
 			"show_edit_predictions": false,
 			"tab_size": 4,
 			"formatter": "language_server",
-			"hard_tabs": true
+			"hard_tabs": true,
+			"enable_language_server": true,
+			"language_servers": [
+				"clangd"
+			]
 		},
 		"Make": {
 			"show_edit_predictions": false,
@@ -56,12 +64,6 @@
 		}
 	},
 	"file_types": {
-		"Dockerfile": [
-			"Dockerfile",
-			"dockerfile",
-			"*.Dockerfile",
-			"*.dockerfile"
-		],
 		"Make": [
 			"makefile",
 			"Makefile",
@@ -110,28 +112,9 @@
 				"path": "clangd",
 				"arguments": [
 					"--header-insertion=never",
-					"--enable-config"
+					"--enable-config",
+					"--background-index"
 				]
-			}
-		},
-		"dts-language-server": {
-			"settings": {
-				"devicetree": {
-					"allowAdhocContexts": true,
-					"autoChangeContext": true,
-					"defaultBindingType": "DevicetreeOrg",
-					"defaultDeviceOrgBindingsMetaSchema": [],
-					"defaultDeviceOrgTreeBindings": [],
-					"defaultShowFormattingErrorAsDiagnostics": false,
-					"defaultIncludePaths": [
-						"./include",
-						"./arch/arm/include",
-						"./arch/mips/include",
-						"../linux/include",
-						"../linux/arch/arm/include",
-						"../linux/arch/mips/include"
-					]
-				}
 			}
 		}
 	}

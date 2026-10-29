@@ -54,12 +54,12 @@ define bootext/compile/checked-wrapper
 	@printf '  CC         %s\n' bootstrap.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(BOOTEXT_SIZE_OPT) -G0 -Wall \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/chainloader" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/chainloader" \
 		-c "$(SRCTREE)/bootext/en751221-bootstrap.c" -o "$(BOOTEXT_BUILD)/bootstrap.o"
 	@printf '  CC         %s\n' uart.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(BOOTEXT_SIZE_OPT) -G0 -Wall \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/chainloader" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/chainloader" \
 		-c "$(SRCTREE)/chainloader/uart.c" -o "$(BOOTEXT_BUILD)/uart.o"
 	@printf '  CC         %s\n' blobs.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \

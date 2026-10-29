@@ -1,5 +1,10 @@
 # EN751221 BootROM XMODEM chainloader
 
+The EN751627 SRAM boot extension also uses this receiver. Its entry,
+DRAMC handoff, 1004K cache handling and build commands are documented in
+[`bootext/en751627.md`](../bootext/en751627.md). The board observations
+and direct BootROM download address below refer to EN751221.
+
 ## What it is
 
 `out/en751221/en751221-recovery-chainloader.bin` is a small standalone loader for the EN751221
@@ -25,8 +30,8 @@ second device tree and SoC breadcrumbs inside `arch/mips/cpu/start.S` and
 
 ## Use
 
-Run `make en751221`.  The normal SoC target builds DRAMC, the flash
-chainload stage, and this recovery image.  To rebuild only the recovery image,
+Run `make en751221`. The normal SoC target builds DRAMC, the flash
+chainload stage, and this recovery image. To rebuild only the recovery image,
 use `make en751221-recovery`.
 
 Hold the board in BootROM recovery, send the chainloader with the BootROM's
@@ -122,10 +127,10 @@ timeout, 3 CRC/checksum, 4 out-of-sequence, with the first 16 bytes received.
 
 After the DRAM/self-check stage the chainloader waits three seconds for a key.
 `x` selects the normal U-Boot XMODEM path, `b` receives a 1 MiB
-`tcboot.bin` and calls `chainloader_flash_tcboot()`.  Timeout defaults to
+`tcboot.bin` and calls `chainloader_flash_tcboot()`. Timeout defaults to
 `x` so unattended recovery behaves like the old chainloader.
 
 The default `chainloader_flash_tcboot()` implementation is deliberately weak
-and returns `-38` (unsupported).  A board/SFC write backend should override
+and returns `-38` (unsupported). A board/SFC write backend should override
 it with a strong implementation that erases, writes, reads back and verifies
 flash offset zero before returning success.

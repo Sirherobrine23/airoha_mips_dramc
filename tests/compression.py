@@ -177,7 +177,16 @@ def main():
         assert struct.unpack_from('>II', base, 0x58) == symbols['spram']
         assert base[0xff00:0xffb0] == b'M' * 176
         assert base[0x10000:0x18000] == stages[0x10000:0x18000]
-        count += 1
+        assert base[0x1600:0x1608] == struct.pack('>II', 0x0be8c0a0, 0)
+        # Source-built DRAMC has its own entry and must remain unchanged.
+        entry = struct.pack('>II', 0x3c1dbfa3, 0x37bdfff0)
+        stages[0x1600:0x1608] = entry
+        (temp / 'stages.bin').write_bytes(stages)
+        subprocess.run(args, check=True, stdout=subprocess.PIPE)
+        base = (temp / 'late.bin').read_bytes()
+        assert base[0x1600:0x1608] == entry
+        assert struct.unpack_from('>I', base, 0x1fffc)[0] == (zlib.crc32(base[:0x1fffc]) ^ 0xffffffff)
+        count += 2
         for interval in [(0xfe00, 0x18000), (0x8000, 0x10000), (0xe000, 0xf000)]:
             symbols['lzma'] = interval
             write_symbols()

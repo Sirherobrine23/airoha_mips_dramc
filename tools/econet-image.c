@@ -107,7 +107,7 @@ static const struct tcboot_cfg tcboot_cfgs[] = {
 		.spl_offset = 0x10000,
 		.spl_limit = CRC1_OFFSET,
 		.ddr_offset = 0x2000,
-		.ddr_size = 0xd050,
+		.ddr_size = 0xb000,
 		.tcboot_len = 0x40000,
 		.spl_is_bootram = false,
 		.crc_offsets = { CRC1_OFFSET, CRC2_OFFSET },
@@ -1212,12 +1212,11 @@ static int pack_flash_image(const char *soc, const char *stages_path,
 		PUT_WORD(0x5c, ddr_e);
 	}
 
-	if (!strcmp(soc, "en751627")) {
-		static const uint8_t zeros[8] = { 0 };
-		if (memcmp(image + ddr_s, zeros, sizeof(zeros))) {
-			fprintf(stderr, "econet-image: EN751627 DDR entry prefix is not reserved zero space\n");
-			goto out;
-		}
+	/* Legacy EN751627 payloads need a jump over their reserved prefix.
+	 * C payloads already contain executable code at the load address.
+	 */
+	if (!strcmp(soc, "en751627") && !get_be32(image + ddr_s) &&
+	    !get_be32(image + ddr_s + 4)) {
 		put_be32(image + ddr_s, 0x0be8c0a0u);
 		put_be32(image + ddr_s + 4, 0);
 	}
@@ -1346,12 +1345,11 @@ static int pack_tcboot_base(const char *soc, const char *stages_path,
 		PUT_WORD(0x5c, ddr_e);
 	}
 
-	if (!strcmp(soc, "en751627")) {
-		static const uint8_t zeros[8] = { 0 };
-		if (memcmp(image + ddr_s, zeros, sizeof(zeros))) {
-			fprintf(stderr, "econet-image: EN751627 DDR entry prefix is not reserved zero space\n");
-			goto out;
-		}
+	/* Legacy EN751627 payloads need a jump over their reserved prefix.
+	 * C payloads already contain executable code at the load address.
+	 */
+	if (!strcmp(soc, "en751627") && !get_be32(image + ddr_s) &&
+	    !get_be32(image + ddr_s + 4)) {
 		put_be32(image + ddr_s, 0x0be8c0a0u);
 		put_be32(image + ddr_s + 4, 0);
 	}

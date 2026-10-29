@@ -126,5 +126,8 @@ enum image_type {
 };
 
 int chainloader_flash_tcboot(const void *image, u32 len);
+#ifdef CHAINLOADER_EN751627
+int en751627_prepare_cpus(void);
+#endif
 
 #endif

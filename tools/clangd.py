@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--soc", choices=("en751221", "en7528"), default="en7528",
+    parser.add_argument("--soc", choices=("en751221", "en751627", "en7528"), default="en7528",
                         help="profile for shared sources (default: en7528)")
     args = parser.parse_args()
     output = ROOT / "out/clangd"
@@ -35,7 +35,7 @@ def main():
             host = relative.parts[0] == "tools" or relative == Path("tests/inspect.c")
             soc = args.soc
             for candidate in ("en751221", "en751627", "en7528", "en7580"):
-                if candidate in relative.parts:
+                if candidate in relative.parts or source.stem == candidate or source.stem.startswith(candidate + "-"):
                     soc = candidate
                     break
             flags = ["clang", "-std=gnu11", "-Wall"]
@@ -51,8 +51,8 @@ def main():
             if relative.parts[0] == "flash":
                 flags += ["-I" + str(ROOT / "flash/decompress"),
                           "-DZ_SOLO", "-DNOBYFOUR", "-D_LZMA_SIZE_OPT"]
-            if relative.parts[0] == "chainloader" and soc == "en7528":
-                flags += ["-DCHAINLOADER_EN7528"]
+            if relative.parts[0] == "chainloader" and soc in ("en751627", "en7528"):
+                flags += ["-DCHAINLOADER_" + soc.upper()]
             if relative.parts[:2] == ("tests", "en7512"):
                 flags += ["-include", str(ROOT / "tests/en7512/mmio.h")]
                 if soc == "en751221":

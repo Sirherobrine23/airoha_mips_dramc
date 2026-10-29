@@ -8,8 +8,8 @@ SECTIONS
 	.rodata : ALIGN(4) { *(.rodata .rodata.*) }
 	.data : ALIGN(4) { *(.data .data.*) }
 	.got : ALIGN(4) { *(.got .got.*) }
-	/* Tabela de CRC32 por bloco de 128 B, gravada depois do link pelo
-	 * tools/econet-image chainloader. Fica por ultimo: tudo antes dela e o que e conferido.
+	/* CRC32 table for 128-byte blocks, written after linking by
+	 * tools/econet-image chainloader. Everything before it is checked.
 	 */
 	.imgchk : ALIGN(4) {
 		__chk_start = .;

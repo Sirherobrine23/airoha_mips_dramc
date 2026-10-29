@@ -20,6 +20,7 @@ EXPERIMENTAL_SOCS ?= 0
 HOSTCC ?= cc
 HOSTCFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 CLANGD_SOC ?= en7528
+PYTHON ?= python3
 HOST_TOOL := $(abspath $(O))/host/econet-image
 
 # Keep SOC as a user-facing selector for `make <type> SOC=<soc>`.  Builders
@@ -58,7 +59,7 @@ test-inspect: $(HOST_TOOL)
 	@"$(abspath $(O))/host/test-inspect" "$(HOST_TOOL)"
 
 test-compression: $(HOST_TOOL)
-	@HOSTCC="$(HOSTCC)" python3 "$(SRCTREE)/tests/compression.py" "$(HOST_TOOL)"
+	@HOSTCC="$(HOSTCC)" $(PYTHON) -P "$(SRCTREE)/tests/compression.py" "$(HOST_TOOL)"
 
 test-en7580-c:
 	@python3 "$(SRCTREE)/tests/en7580/compare.py"
@@ -103,6 +104,7 @@ help:
 		'' \
 		'Standalone boot extension:' \
 		'  make en7528-bootext' \
+		'  make en751627-bootext' \
 		'  make bootext SOC=en7528' \
 		'' \
 		'Standalone TCBoot loader (payload is attached later by the image builder):' \

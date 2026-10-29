@@ -32,12 +32,20 @@ define chainload/compile
 		$(CHAINLOADER_SOC_CPPFLAGS) $(CHAINLOADER_CPPFLAGS) $(CHAINLOADER_SFC_CPPFLAGS) \
 		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/early_sfc.c" -o "$(RECOVERY_BUILD)/early_sfc.o"
+	@set -e; for obj in $(CHAINLOADER_SOC_OBJS); do \
+		printf '  CC         %s\n' "$$obj"; \
+		$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+			-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(SIZE_OPT) -G0 -Wall \
+			$(CHAINLOADER_SOC_CPPFLAGS) $(CHAINLOADER_CPPFLAGS) $(PROJECT_INCLUDES) \
+			-c "$(SRCTREE)/chainloader/$${obj%.o}.c" -o "$(RECOVERY_BUILD)/$$obj"; \
+	done
 	@printf '  LD         %s\n' "$(RECOVERY_BUILD)/chainloader.elf"
 	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) --defsym CHAINLOADER_BASE=$(CHAINLOADER_BASE) \
 		-T "$(SRCTREE)/chainloader/chainloader.lds" -Map "$(RECOVERY_BUILD)/chainloader.map" \
 		-o "$(RECOVERY_BUILD)/chainloader.elf" \
 		"$(RECOVERY_BUILD)/start.o" "$(RECOVERY_BUILD)/uart.o" \
-		"$(RECOVERY_BUILD)/chainloader.o" "$(RECOVERY_BUILD)/flash-write.o" "$(RECOVERY_BUILD)/early_sfc.o"
+		"$(RECOVERY_BUILD)/chainloader.o" "$(RECOVERY_BUILD)/flash-write.o" "$(RECOVERY_BUILD)/early_sfc.o" \
+		$(addprefix $(RECOVERY_BUILD)/,$(CHAINLOADER_SOC_OBJS))
 	$(TOOL_OBJCOPY) -O binary "$(RECOVERY_BUILD)/chainloader.elf" "$(RECOVERY_BUILD)/chainloader.raw.bin"
 	@set -eu; \
 		start_hex=`$(TOOL_NM) -n "$(RECOVERY_BUILD)/chainloader.elf" | awk '$$3 == "__image_start" { print $$1; exit }'`; \

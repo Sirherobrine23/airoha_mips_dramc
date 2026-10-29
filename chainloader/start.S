@@ -2,10 +2,32 @@
 .set noreorder
 .set noat
 
+#include "cache-l2.h"
+
 .section .text.start, "ax", @progbits
 .globl _start
 .ent _start
 _start:
+#ifdef CHAINLOADER_EN751627
+	/* Restore the low DRAM apertures after the temporary KSEG2 TLB map.
+	 * Values and ordering follow EN7516 boot2's ddr_calibration_exit.
+	 */
+	li	$t0, 0xbfb00280
+	sw	$zero, 0($t0)
+	li	$t0, 0xbfb00000
+	li	$t1, 0x80071f1e
+	sw	$t1, 0x20($t0)
+	li	$t1, 0x00071f1f
+	sw	$t1, 0x24($t0)
+	li	$t1, 0x80050000
+	sw	$t1, 0x34($t0)
+	li	$t0, 0xbfb10000
+	li	$t1, 0x102d1040
+	sw	$t1, 0($t0)
+	li	$t1, 0x200028d0
+	sw	$t1, 0x14($t0)
+	sync
+#endif
 #ifdef EN751221_BOOTEXT
 	/*
 	 * SRAM entry: DRAM (including the old stack) is about to be rebuilt.
@@ -53,9 +75,8 @@ en751221_ddr_return:
 	ehb
 
 	/*
-	 * The BootROM writes the image to DRAM through the cache. Before
-	 * switching to running uncached, write back the dirty lines and
-	 * invalidate the I-cache, otherwise we read stale DRAM.
+	 * The BootROM can leave dirty cache lines. Write them back and
+	 * invalidate the I-cache before changing cache mode or using DRAM.
 	 */
 	mfc0	$t0, $16, 1		/* Config1 */
 
@@ -84,6 +105,9 @@ en751221_ddr_return:
 	 nop
 	sync
 2:
+#ifdef CHAINLOADER_EN751627
+	en751627_flush_l2
+#endif
 	/* I-cache: IL=[21:19] line, IS=[24:22] sets, IA=[18:16] ways */
 	srl	$t1, $t0, 19
 	andi	$t1, $t1, 7
@@ -179,6 +203,9 @@ chainload_jump:
 	 nop
 	sync
 2:
+#ifdef CHAINLOADER_EN751627
+	en751627_flush_l2
+#endif
 	srl	$t1, $t0, 19
 	andi	$t1, $t1, 7
 	beqz	$t1, 4f
@@ -214,3 +241,26 @@ chainload_jump:
 	jr	$s0
 	 nop
 .end chainload_jump
+
+#ifdef CHAINLOADER_EN751627
+.globl en751627_secondary_park
+.ent en751627_secondary_park
+en751627_secondary_park:
+	/* Match the SDK smp_bootstrap callback without a C stack or GP. */
+	mfc0	$t0, $13
+	li	$t1, 0xffbfffff
+	and	$t0, $t0, $t1
+	mtc0	$t0, $13
+	ehb
+	mfc0	$t0, $15, 1
+	andi	$t0, $t0, 0x3ff
+	sll	$t0, $t0, 5
+	li	$t1, 0xbfa40140
+	addu	$t0, $t0, $t1
+	sw	$zero, 28($t0)
+	sync
+	li	$t0, 0xbfa40040
+	jr	$t0
+	 nop
+.end en751627_secondary_park
+#endif

@@ -1075,6 +1075,13 @@ void chainloader_main(void)
 		halt();
 	}
 
+#ifdef CHAINLOADER_EN751627
+	if (en751627_prepare_cpus()) {
+		uart_printf("secondary CPU park timed out; stopped\n");
+		halt();
+	}
+#endif
+
 	for (;;) {
 		if (prompt_boot_action() == BOOT_ACTION_FLASH_TCBOOT) {
 			if (!receive_and_flash_tcboot())

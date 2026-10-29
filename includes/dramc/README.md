@@ -1,6 +1,6 @@
 # Shared EN7512 DRAMC calibration
 
-EN751221 and EN7528 build the same DLE and DQS gate-window translation
+EN751221, EN751627 and EN7528 build the same DLE and DQS gate-window translation
 units from this directory. `regs.h` also provides their common register
 offsets and test-agent bit definitions. The device include path selects
 `en7512_soc.h` from the corresponding SoC directory; no runtime chip
@@ -23,21 +23,21 @@ differ and are not unified here.
 
 ## Preserved differences
 
-| Parameter | EN751221 | EN7528 |
-| --- | --- | --- |
-| CPU byte order | Big endian | Little endian |
-| DQS coarse search | 0..31 | 6..20 |
-| DQS fine search | 0..95 | 0..95 |
-| Gating test length | 0xff | 0x0f |
-| Expected gating counter | 0xf8f8f8f8 | 0x78787878 |
-| DRAM test CPU address | 0xa0080000 | 0xa0080000 |
-| DMA/TA1 polling limit | 0x7fffffff | 0x00100000 |
+| Parameter               | EN751221   | EN751627   | EN7528        |
+| ----------------------- | ---------- | ---------- | ------------- |
+| CPU byte order          | Big endian | Big endian | Little endian |
+| DQS coarse search       | 0..31      | 6..20      | 6..20         |
+| DQS fine search         | 0..95      | 0..95      | 0..95         |
+| Gating test length      | 0xff       | 0x0f       | 0x0f          |
+| Expected gating counter | 0xf8f8f8f8 | 0x78787878 | 0x78787878    |
+| DRAM test CPU address   | 0xa0080000 | 0xc0080000 | 0xa0080000    |
+| DMA/TA1 polling limit   | 0x7fffffff | 0x7fffffff | 0x00100000    |
 
 Each `dramc_test.c` retains its original DMA access qualifiers, polling
 and TA1 code. Clock/PLL, eFuse/package detection, DRAM geometry, initial
 timings and RX/TX per-bit training remain in the SoC directories.
-EN751627 still uses its preserved vendor payload; EN7580 uses its separate
-DDR3/DDR4 implementation.
+EN751627 also retains its own KSEG2/TLB setup and sequential TA2
+write/read test. EN7580 uses its separate DDR3/DDR4 implementation.
 
 The shared algorithms retain the original selection rules: DLE chooses
 the second tap of the first adjacent passing pair; gating chooses the

@@ -8,16 +8,43 @@ define Device/en751627
 	SOC_LD_EMULATION := elf32btsmip
 	SOC_PAYLOAD_OFFSET := 0x00020000
 	SOC_TCBOOT := y
+	SOC_BOOTEXT := y
 	TCBOOT_BOOT2 := y
 	TCBOOT_MOVE_DATA_SRC := $$(SRCTREE)/flash/en751627/move_data.S
 	TCBOOT_MOVE_DATA_LDS := $$(SRCTREE)/flash/en751627/move_data.lds
 	TCBOOT_BOOT2_SRC := $$(SRCTREE)/flash/en751627/boot2.S
 	TCBOOT_BOOT2_LDS := $$(SRCTREE)/flash/en751627/boot2.lds
-	# The prebuilt DRAMC leaves little room before manufacturing data.
+	# Keep the early flash stages small before manufacturing data.
 	TCBOOT_SIZE_OPT := -Oz
 
-	DRAMC_PREBUILT := $$(DRAMC_DIR)/en751627_ddr.bin
-	DRAMC_PREBUILT_SIZE := 53328
+	DRAMC_LDS := $$(DRAMC_DIR)/ddr.lds
+	DRAMC_INCLUDES := -I$$(DRAMC_DIR)
+	DRAMC_SHARED_DIR := $$(SRCTREE)/includes/dramc
+	DRAMC_SHARED_OBJS := dramc_dle_cal.o dramc_dqs_gw_cal.o
+	DRAMC_OBJS := \
+		entry.o \
+		dramc.o \
+		dramc_test.o \
+		dramc_dle_cal.o \
+		dramc_dq_dqs_cal.o \
+		dramc_dqs_gw_cal.o \
+		en7512_dramc_init.o \
+		system.o \
+		mmu.o \
+		runtime.o \
+		main.o
+
+	CHAINLOADER_SOC_CPPFLAGS := -DCHAINLOADER_EN751627
+	CHAINLOADER_SOC_OBJS := en751627.o
+	CHAINLOADER_SFC_CPPFLAGS := -DECONET_SFC_TINY_WRITE_ONLY
+
+	BOOTEXT_MODE := composite
+	BOOTEXT_BASE := 0x9fa30000
+	BOOTEXT_CHAIN_OFFSET := 0x00005000
+	BOOTEXT_CHAINLOADER_BASE := 0x9fa35000
+	# Keep code, CRC tables and receiver BSS below the DRAMC stack reserve.
+	BOOTEXT_SRAM_SIZE := 0x0000b000
+	BOOTEXT_DRAMC_CPPFLAGS := -DBOOTEXT_CHAINLOAD_ENTRY=$$(BOOTEXT_CHAINLOADER_BASE)
 endef
 
 TARGET_DEVICES += en751627

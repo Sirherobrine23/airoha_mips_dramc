@@ -9,7 +9,7 @@ outside the firmware build (for example in the OpenWrt image pipeline).
 ## Supported SoCs
 
 - `en751221`
-- `en751627` (DRAMC payload currently comes from the preserved vendor binary)
+- `en751627` ([DRAMC port](dramc/en751627/README.md), [bootext/chainloader](bootext/en751627.md); experimental, hardware validation pending)
 - `en7528`
 - `en7580` (DRAMC port; experimental, hardware validation pending)
 

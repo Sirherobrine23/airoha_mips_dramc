@@ -4,7 +4,7 @@
 
 #include <asm/io.h>
 
-/* Legacy EN7512 DRAMC register offsets shared by EN751221 and EN7528.
+/* Legacy EN7512 DRAMC register offsets shared by EN751221, EN751627 and EN7528.
  * Corroborated by bootrom/ddr_cal_en7512/inc/dramc.h in the vendor SDK.
  * Absolute MMIO access and SoC-specific clock/eFuse setup stay in each port.
  */

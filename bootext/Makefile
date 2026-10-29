@@ -5,12 +5,23 @@
 define bootext/check/composite
 	@set -eu; \
 		end_hex=`$(TOOL_NM) -n "$(BOOTEXT_DDR_ELF)" | awk '$$3 == "_end" { print $$1; exit }'`; \
-		test -n "$$end_hex" || { echo "error: cannot find $(DEVICE_SOC) DRAMC _end" >&2; exit 1; }; \
+		ddr_entry=`$(TOOL_NM) -n "$(BOOTEXT_DDR_ELF)" | awk '$$3 == "ddr_entry" { print $$1; exit }'`; \
+		chain_entry=`$(TOOL_NM) -n "$(BOOTEXT_CHAIN_ELF)" | awk '$$3 == "_start" { print $$1; exit }'`; \
+		chain_end=`$(TOOL_NM) -n "$(BOOTEXT_CHAIN_ELF)" | awk '$$3 == "__image_end" { print $$1; exit }'`; \
+		test -n "$$end_hex" -a -n "$$ddr_entry" -a -n "$$chain_entry" -a -n "$$chain_end" || { \
+			echo "error: missing $(DEVICE_SOC) bootext layout symbols" >&2; exit 1; }; \
 		end=$$((0x$$end_hex)); \
 		chain=$$(( $(BOOTEXT_CHAINLOADER_BASE) )); \
 		limit=$$(( $(BOOTEXT_BASE) + $(BOOTEXT_SRAM_SIZE) )); \
+		test $$((0x$$ddr_entry)) -eq $$(( $(BOOTEXT_BASE) )) || { echo 'unexpected DRAMC entry' >&2; exit 1; }; \
+		test $$((0x$$chain_entry)) -eq $$chain || { echo 'unexpected receiver entry' >&2; exit 1; }; \
+		test $$chain -eq $$(( $(BOOTEXT_BASE) + $(BOOTEXT_CHAIN_OFFSET) )) || { echo 'receiver offset/address mismatch' >&2; exit 1; }; \
 		if [ $$end -gt $$chain ]; then \
 			echo "error: $(DEVICE_SOC) DRAMC runtime end 0x$$end_hex overlaps chainloader at $(BOOTEXT_CHAINLOADER_BASE)" >&2; \
+			exit 1; \
+		fi; \
+		if [ $$((0x$$chain_end)) -gt $$limit ]; then \
+			echo "error: $(DEVICE_SOC) receiver BSS/runtime exceeds bootext SRAM limit" >&2; \
 			exit 1; \
 		fi; \
 		chain_size=`wc -c < "$(BOOTEXT_CHAIN_IMAGE)"`; \

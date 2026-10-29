@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "en7580_ddr.h"
 /* Virtual banks: DRAMC NAO, DRAMC AO, PHY byte lanes, PHY command. */
-static const u32 reg_bases[] = { 0xbfb22000, 0xbfb24000, 0xbfb28000, 0xbfb26000 };
+static const u32 reg_bases[] = {
+	DRAMC_NAO_BASE_ADDRESS, DRAMC_AO_BASE_ADDRESS,
+	DDRPHY_B01_BASE_ADDRESS, DDRPHY_CMD_BASE_ADDRESS,
+};
 void SaveCurrDramCtx(DRAMC_CTX_T *p) { pgCurrDramCtx = p; }
 u32 u4RegBaseAddrTraslate(u32 reg)
 {
@@ -10,7 +13,7 @@ u32 u4RegBaseAddrTraslate(u32 reg)
 	return reg;
 }
 u32 u4Dram_Register_Read(u32 reg) { return reg_read(u4RegBaseAddrTraslate(reg)); }
-u32 ucDram_Register_Write(u32 reg, u32 value)
+u8 ucDram_Register_Write(u32 reg, u32 value)
 {
 	reg_write(u4RegBaseAddrTraslate(reg), value);
 	return 0;

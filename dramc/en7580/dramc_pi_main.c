@@ -13,7 +13,7 @@ void vDramCalibrationAllChannel(DRAMC_CTX_T *p)
 	DramcRxdatlatCal(p);
 	if (p->dram_type == EN7580_TYPE_PCDDR4)
 		DramcTxVrefDQCalibration(p);
-	DramcTxWindowPerbitCal(p, 2);
+	DramcTxWindowPerbitCal(p, TX_DQ_DQS_MOVE_DQ_DQM);
 	vSetRank(p, 0);
 	v4bitPinmuxEnableVerify(p);
 }
@@ -33,8 +33,8 @@ static void prepare_context(DRAMC_CTX_T *p, u32 type)
 	p->vendor_id = 0x88; p->density = 0;
 	p->fglow_freq_write_en = 0; p->ssc_en = 0; p->en_4bitMux = 0;
 	p->enable_rx_scan_vref = type == EN7580_TYPE_PCDDR4;
-	p->enable_tx_scan_vref = 0; p->write_leveling_shift = 0;
-	p->tx_perbit_init = 0; p->asymmetric = 0;
+	p->enable_tx_scan_vref = 0; p->arfgWriteLevelingInitShif[0] = 0;
+	p->fgTXPerbifInit[0] = 0; p->asymmetric = 0;
 	p->min_winsize = 0; p->sum_winsize = 0;
 }
 static void print_configuration(DRAMC_CTX_T *p)
@@ -53,7 +53,7 @@ void DPI_SW_main_PCDDR3(void)
 	DRAMC_CTX_T *p = &g_dramc_config;
 	prepare_context(p, EN7580_TYPE_PCDDR3);
 	p->frequency = (reg_read(0xbfb00240) & 3) ? 1200 : 1866;
-	p->pinmux = 1; p->odt_onoff = p->frequency >= 1600;
+	p->pinmux = PIN_MUX_TYPE_DDR3X16; p->odt_onoff = p->frequency >= 1600;
 	print_configuration(p); calibrate(p);
 	prom_puts("Start Selftest Now...\n"); DramcSelftestRun(p);
 }
@@ -61,6 +61,6 @@ void DPI_SW_main_PCDDR4(void)
 {
 	DRAMC_CTX_T *p = &g_dramc_config;
 	prepare_context(p, EN7580_TYPE_PCDDR4);
-	p->frequency = 1866; p->pinmux = 3; p->odt_onoff = 1;
+	p->frequency = 1866; p->pinmux = PIN_MUX_TYPE_DDR4X16; p->odt_onoff = 1;
 	print_configuration(p); vPrintCalibrationBasicInfo(p); calibrate(p);
 }

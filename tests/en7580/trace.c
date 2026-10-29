@@ -39,7 +39,7 @@ uint u4Dram_Register_Read(uint reg)
  if (reg == 0x20140 || reg == 0x20144) val = 0xffffffffu;
  reads++; record(1, reg, val); return val;
 }
-uint ucDram_Register_Write(uint reg, uint val)
+u8 ucDram_Register_Write(uint reg, uint val)
 {
  if (reg >= 0x20000 && reg < 0x60000) regs[(reg - 0x20000) / 4] = val;
  writes++; record(2, reg, val); return 0;
@@ -73,6 +73,13 @@ int prom_printf(const char *s, ...) { (void)s; return 0; }
 void *memset(void *dst, int v, ulong len)
 {
  byte *b = dst; while (len--) *b++ = v; return dst;
+}
+void *memcpy(void *dst, const void *src, ulong len)
+{
+ byte *d = dst;
+ const byte *s = src;
+ while (len--) *d++ = *s++;
+ return dst;
 }
 static void output(int ret)
 {
@@ -120,6 +127,41 @@ int guard_test(int argc, char **argv)
  case 21: DramcSelftestRun(&ctx); break;
  case 22: DramcHWGatingInit(&ctx); DramcHWGatingOnOff(&ctx, 1); break;
  case 23: poison_stack(profile & 16 ? 0x55555555 : 0xaaaaaaaa); vDramCalibrationAllChannel(&ctx); break;
+ case 24: {
+  DRAMC_CTX_T saved;
+  u32 executed = ~0u, result = ~0u;
+  vSetCalibrationResult(&ctx, DRAM_CALIBRATION_SW_IMPEDANCE, DRAM_FAIL);
+  if (ctx.aru4CalResultFlag[0] != BIT(DRAM_CALIBRATION_SW_IMPEDANCE) ||
+      ctx.aru4CalExecuteFlag[0] != BIT(DRAM_CALIBRATION_SW_IMPEDANCE)) return 10;
+  vSetRank(&ctx, 1);
+  if (u1GetRank(&ctx) != RANK_0) return 11;
+  DramcSetRankEngine2(&ctx, 1);
+  if (DramcRankSwap(&ctx, 1) != DRAM_FAIL || ops) return 18;
+  ctx.rank = 1;
+  saved = ctx;
+  vSetCalibrationResult(&ctx, DRAM_CALIBRATION_GATING, DRAM_FAIL);
+  for (uint i = 0; i < sizeof(ctx); i++)
+   if (((u8 *)&saved)[i] != ((u8 *)&ctx)[i]) return 12;
+  vGetCalibrationResult_All(&ctx, 1, &executed, &result);
+  if (executed || result) return 13;
+  ctx.rank = RANK_0;
+  vSetCalibrationResult(&ctx, DRAM_CALIBRATION_SW_IMPEDANCE, DRAM_OK);
+  if (ctx.aru4CalResultFlag[0] ||
+      ctx.aru4CalExecuteFlag[0] != BIT(DRAM_CALIBRATION_SW_IMPEDANCE)) return 14;
+  saved = ctx;
+  vSetCalibrationResult(&ctx, 32, DRAM_FAIL);
+  for (uint i = 0; i < sizeof(ctx); i++)
+   if (((u8 *)&saved)[i] != ((u8 *)&ctx)[i]) return 15;
+  break;
+ }
+ case 25: {
+  vIO32WriteFldMulti(DRAMC_REG_DDRCONF0, P_Fld(0x89abcdefu, RG_FLD_FULL));
+  if (u4Dram_Register_Read(DRAMC_REG_DDRCONF0) != 0x89abcdefu) return 16;
+  vIO32WriteFldMulti(DRAMC_REG_DDRCONF0,
+   P_Fld(0, DDRCONF0_DRAMC_SW_RST) | P_Fld(0xf, DDRCONF0_FIFOLEN));
+  if (u4Dram_Register_Read(DRAMC_REG_DDRCONF0) != 0x09abcdffu) return 17;
+  break;
+ }
  default: return 5;
  }
  output(mode); return 0;

@@ -8,10 +8,12 @@ define Device/en7580
 	SOC_ENDIAN := little
 	SOC_LD_EMULATION := elf32ltsmip
 	SOC_PAYLOAD_OFFSET := 0x00060000
+	SOC_BOOTEXT := y
 
 	DRAMC_LDS := $$(DRAMC_DIR)/ddr.lds
 	DRAMC_INCLUDES := -I$$(DRAMC_DIR)
-	DDR_CPPFLAGS := -fno-strict-aliasing
+	# Clang -Os exceeds the SRAM budget; preserve the stack reservation.
+	DDR_CPPFLAGS := -fno-strict-aliasing $$(if $$(filter 1,$$(LLVM)),-Oz)
 	DRAMC_OBJS := \
 		entry.o \
 		dramc.o \
@@ -25,6 +27,12 @@ define Device/en7580
 		system.o \
 		data.o \
 		glue.o
+
+	BOOTEXT_MODE := dramc-only
+	BOOTEXT_BASE := 0x9fa30000
+	BOOTEXT_SRAM_LIMIT := 0x9fa3b000
+	BOOTEXT_SIZE_OPT := $$(if $$(filter 1,$$(LLVM)),-Oz,-Os)
+	BOOTEXT_DRAMC_CPPFLAGS := -fno-strict-aliasing -DEN7580_BOOTEXT
 endef
 
 TARGET_DEVICES += en7580

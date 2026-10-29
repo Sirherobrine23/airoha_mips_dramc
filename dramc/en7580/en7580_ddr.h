@@ -1,38 +1,38 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef EN7580_DDR_H
 #define EN7580_DDR_H
-typedef unsigned char u8, byte;
-typedef unsigned short u16, ushort;
-typedef unsigned int u32, uint, ulong;
-typedef unsigned long long u64;
-typedef _Bool bool;
+#include <dramc/en7580/dramc_pi_api.h>
+#include <dramc/en7580/x_hal_io.h>
+#include <dramc/en7580/dramc_register.h>
+
+typedef unsigned char byte;
+typedef unsigned short ushort;
+typedef unsigned int uint, ulong;
 typedef void code(void);
 #define true 1
 #define false 0
-/* EN7580 object ABI: the XX230v variant inserts TYPE_PCDDR2 before DDR3. */
-enum en7580_dram_type {
-  EN7580_TYPE_PCDDR3 = 4,
-  EN7580_TYPE_PCDDR4 = 5,
-};
-typedef struct DRAMC_CTX_T {
-  uint support_rank_num, rank, dram_type, odt_onoff, dram_cbt_mode;
-  uint DBI_R_onoff, DBI_W_onoff, package, data_width;
-  uint test2_1, test2_2, test_pattern, frequency;
-  byte vendor_id, pad53; ushort density;
-  byte fglow_freq_write_en, ssc_en, en_4bitMux, enable_rx_scan_vref, enable_tx_scan_vref;
-  byte pad61[3]; uint pinmux; byte asymmetric, pad69;
-  ushort min_winsize, sum_winsize, pad74;
-  uint cal_result, cal_executed;
-  byte write_leveling_shift, tx_perbit_init, pad86[2];
-} DRAMC_CTX_T;
+
+#define EN7580_TYPE_PCDDR3 TYPE_PCDDR3
+#define EN7580_TYPE_PCDDR4 TYPE_PCDDR4
+
+/* The supplied EN7580 header matches the recovered single-rank object ABI.
+ * The separate XX230v EN7523 context has a different layout and enum IDs.
+ */
+_Static_assert(RANK_MAX == 1, "EN7580 port supports one rank");
+_Static_assert(DQ_DATA_WIDTH == 16 && DQS_NUMBER == 2, "EN7580 port uses x16 data");
 _Static_assert(sizeof(DRAMC_CTX_T) == 88, "EN7580 vendor context ABI");
-/* XX230v adds clk_src at offset 52 and moves these fields by four bytes. */
-_Static_assert(__builtin_offsetof(DRAMC_CTX_T, frequency) == 48,
-               "EN7580 frequency offset");
-_Static_assert(__builtin_offsetof(DRAMC_CTX_T, vendor_id) == 52,
-               "EN7580 vendor ID offset");
-_Static_assert(__builtin_offsetof(DRAMC_CTX_T, pinmux) == 64,
-               "EN7580 pinmux offset");
+_Static_assert(TYPE_PCDDR3 == 4 && TYPE_PCDDR4 == 5, "EN7580 DRAM type IDs");
+_Static_assert(PIN_MUX_TYPE_DDR4X16 == 3, "EN7580 DDR4 pinmux ID");
+#define CTX_OFFSET(member, value) \
+    _Static_assert(__builtin_offsetof(DRAMC_CTX_T, member) == (value), "EN7580 " #member " offset")
+CTX_OFFSET(frequency, 48);
+CTX_OFFSET(vendor_id, 52);
+CTX_OFFSET(pinmux, 64);
+CTX_OFFSET(aru4CalResultFlag, 76);
+CTX_OFFSET(aru4CalExecuteFlag, 80);
+CTX_OFFSET(arfgWriteLevelingInitShif, 84);
+CTX_OFFSET(fgTXPerbifInit, 85);
+#undef CTX_OFFSET
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #define BIT(n) (1u << (n))
@@ -113,32 +113,13 @@ int prom_printf_s(char *str,...);
 uint calculate_dram_size(void);
 void dramc_reg_dump(void);
 int main(void);
-void v4bitPinmuxEnableVerify(DRAMC_CTX_T *p);
 u32 DdrUpdateACTimingReg(void);
 void Set_MRR_Pinmux_Mapping(DRAMC_CTX_T *p);
-void Global_Option_Init(DRAMC_CTX_T *p);
 int SscEnable(DRAMC_CTX_T *p);
 void DDRPhyPLLSetting_EN7580(DRAMC_CTX_T *p);
-void TransferToSPMControl(DRAMC_CTX_T *p);
-void Switch26MHzDisableDummyReadRefreshAllBank(DRAMC_CTX_T *p);
-void EnableDramcPhyDCM(DRAMC_CTX_T *p,uint bEn);
 void HwSaveForSR(DRAMC_CTX_T *p);
-void DramcRunTimeConfig(DRAMC_CTX_T *p);
-void DramcSetRankEngine2(DRAMC_CTX_T *p,uint u1RankSel);
-uint DramcEngine1(DRAMC_CTX_T *p,uint test2_1,uint test2_2,int loopforever,uint period);
-int DramcEngine2Init(DRAMC_CTX_T *p,uint test2_1,uint test2_2,uint testaudpat,uint log2loopcount);
-uint DramcEngine2Run(DRAMC_CTX_T *p,int wr,uint testaudpat);
-void DramcEngine2End(DRAMC_CTX_T *p);
-uint DramcEngine2(DRAMC_CTX_T *p,int wr,uint test2_1,uint test2_2,uint testaudpat,int loopforever,
-                 uint period,uint log2loopcount);
-uint TestEngineCompare(DRAMC_CTX_T *p);
-void DramcModeRegWrite_PC3(DRAMC_CTX_T *p,uint u1MRIdx,uint u4Value);
-void DramcModeRegWrite_PC4(DRAMC_CTX_T *p,uint u1BGIdx,uint u1MRIdx,uint u4Value);
-int DramcInit(DRAMC_CTX_T *p);
 void DramReInitForCalibration(DRAMC_CTX_T *p);
 void DramcHWDQSGatingTracking_DVT(DRAMC_CTX_T *p);
-void DramcHWGatingInit(DRAMC_CTX_T *p);
-void DramcHWGatingOnOff(DRAMC_CTX_T *p,uint u1OnOff);
 uint Round_Operation(uint A,uint B);
 void TxWinTransferDelayToUIPI
                (DRAMC_CTX_T *p,uint uiDelay,uint u1UISmallBak,uint u1UILargeBak,u8 *pu1UILarge,
@@ -150,43 +131,20 @@ void MoveDramC_TX_DQS(DRAMC_CTX_T *p,uint u1ByteIdx,int iShiftUI);
 void MoveDramC_TX_DQS_OEN(DRAMC_CTX_T *p,uint u1ByteIdx,int iShiftUI);
 void MoveDramC_TX_DQ(DRAMC_CTX_T *p,uint u1ByteIdx,int iShiftUI);
 void vSetDramMRWriteLevelingOnOff(DRAMC_CTX_T *p,uint u1OnOff);
-void vSetRankNumber(DRAMC_CTX_T *p);
-void vSetRank(DRAMC_CTX_T *p,uint ucRank);
-uint u1GetRank(DRAMC_CTX_T *p);
 void vSetCalibrationResult(DRAMC_CTX_T *p,uint calibration,uint result);
-void vGetCalibrationResult_All(DRAMC_CTX_T *p,uint u1Rank,uint *u4CalExecute,uint *u4CalResult);
 void vPrintCalibrationBasicInfo(DRAMC_CTX_T *p);
-void vApplyConfigAfterCalibration(DRAMC_CTX_T *p);
-void vApplyConfigBeforeCalibration(DRAMC_CTX_T *p);
-void DramPhyReset(DRAMC_CTX_T *p);
 void SetRxDqDqsDelay(DRAMC_CTX_T *p,int iDelay);
 void dle_factor_handler(DRAMC_CTX_T *p,uint curr_val);
-int DramcRankSwap(DRAMC_CTX_T *p,uint u1Rank);
 void DramcSwImpedanceSaveRegister(DRAMC_CTX_T *p);
-int DramcSwImpedanceCal(DRAMC_CTX_T *p);
 void Another_Rank_CKE_low(DRAMC_CTX_T *p,uint on_off);
 void O1PathOnOff(DRAMC_CTX_T *p,uint u1OnOff);
-int DramcWriteLeveling(DRAMC_CTX_T *p);
-int DramcRxdqsGatingCal_PCDDR3(DRAMC_CTX_T *p);
 void DramcGatingMode(DRAMC_CTX_T *p,uint u1Mode);
-int DramcRxdqsGatingCal_PCDDR4(DRAMC_CTX_T *p);
-int DramcRxWindowPerbitCal(DRAMC_CTX_T *p,uint u1UseTestEngine);
 uint DramcRxdatlatScan(DRAMC_CTX_T *p,uint max);
-int DramcRxdatlatCal(DRAMC_CTX_T *p);
-int DramcTxWindowPerbitCal(DRAMC_CTX_T *p,int calType);
-int DramcTxVrefDQCalibration(DRAMC_CTX_T *p);
 void DramcSelftestRun(DRAMC_CTX_T *p);
 void vDramCalibrationAllChannel(DRAMC_CTX_T *p);
-void Dramc_DDR_Reserved_Mode_setting(void);
 void DPI_SW_main_PCDDR3(void);
 void DPI_SW_main_PCDDR4(void);
-void SaveCurrDramCtx(DRAMC_CTX_T *p);
 uint u4RegBaseAddrTraslate(uint reg);
-uint u4Dram_Register_Read(uint reg);
-uint ucDram_Register_Write(uint reg,uint val);
-void vIO32Write4BMsk(uint reg,uint val,uint mask);
-void vIO32Write4B_All(uint reg,uint val);
-void vIO32Write4BMsk_All(uint reg,uint val,uint mask);
 void start_spram(int calibrate);
 u32 efuse_disable(uint param_1);
 u32 get_row_col(int param_1,int *param_2,int *param_3);

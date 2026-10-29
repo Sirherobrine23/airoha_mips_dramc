@@ -156,38 +156,39 @@ void vSetRankNumber(DRAMC_CTX_T *p)
   return;
 }
 
-void vSetRank(DRAMC_CTX_T *p,uint ucRank)
+void vSetRank(DRAMC_CTX_T *p, U8 rank)
 {
-  p->rank = ucRank & 0xff;
-  return;
+  if (rank < RANK_MAX)
+    p->rank = rank;
 }
 
-uint u1GetRank(DRAMC_CTX_T *p)
+U8 u1GetRank(DRAMC_CTX_T *p)
 {
-  return (uint)*(byte *)&p->rank;
+  return (U8)p->rank;
 }
 
-void vSetCalibrationResult(DRAMC_CTX_T *p,uint calibration,uint result)
+void vSetCalibrationResult(DRAMC_CTX_T *p, uint calibration, uint result)
 {
-  uint uVar1;
-  uint uVar2;
+  u32 rank = p->rank;
+  u32 mask;
 
-  uVar1 = p->rank;
-  uVar2 = 1 << (calibration & 0x1f);
-  (&p->cal_executed)[uVar1] = (&p->cal_executed)[uVar1] | uVar2;
-  if ((result & 0xff) == 0) {
-    (&p->cal_result)[uVar1] = ~uVar2 & (&p->cal_result)[uVar1];
+  /* DUAL_RANK_ENABLE is disabled in the supplied EN7580 configuration.
+   * A rank-1 access would overwrite another field of the 88-byte context.
+   */
+  if (rank >= RANK_MAX || calibration >= DRAM_CALIBRATION_MAX)
     return;
-  }
-  (&p->cal_result)[uVar1] = uVar2 | (&p->cal_result)[uVar1];
-  return;
+  mask = BIT(calibration);
+  p->aru4CalExecuteFlag[rank] |= mask;
+  if ((u8)result == DRAM_OK)
+    p->aru4CalResultFlag[rank] &= ~mask;
+  else
+    p->aru4CalResultFlag[rank] |= mask;
 }
 
-void vGetCalibrationResult_All(DRAMC_CTX_T *p,uint u1Rank,uint *u4CalExecute,uint *u4CalResult)
+void vGetCalibrationResult_All(DRAMC_CTX_T *p, U8 rank, U32 *executed, U32 *result)
 {
-  *u4CalExecute = (&p->cal_executed)[u1Rank & 0xff];
-  *u4CalResult = (&p->cal_result)[u1Rank & 0xff];
-  return;
+  *executed = rank < RANK_MAX ? p->aru4CalExecuteFlag[rank] : 0;
+  *result = rank < RANK_MAX ? p->aru4CalResultFlag[rank] : 0;
 }
 
 void vPrintCalibrationBasicInfo(DRAMC_CTX_T *p)
@@ -320,12 +321,14 @@ void dle_factor_handler(DRAMC_CTX_T *p,uint curr_val)
   return;
 }
 
-int DramcRankSwap(DRAMC_CTX_T *p,uint u1Rank)
+DRAM_STATUS_T DramcRankSwap(DRAMC_CTX_T *p, U8 u1Rank)
 {
   uint val;
 
-  val = u1Rank & 0xff;
-  vIO32Write4BMsk(0x30034,(val << 3 | p->support_rank_num < 2 ^ 1) << 4,0xf0);
+  if (u1Rank >= RANK_MAX)
+    return DRAM_FAIL;
+  val = u1Rank;
+  vIO32Write4BMsk(0x30034,(val << 3 | ((p->support_rank_num < 2) ^ 1)) << 4,0xf0);
   if (val == 0) {
     vIO32Write4BMsk(0x30034,0,8);
   }
@@ -347,7 +350,7 @@ void DramcSwImpedanceSaveRegister(DRAMC_CTX_T *p)
   return;
 }
 
-int DramcSwImpedanceCal(DRAMC_CTX_T *p)
+DRAM_STATUS_T DramcSwImpedanceCal(DRAMC_CTX_T *p)
 {
   uint uVar1;
   uint uVar2;
@@ -442,7 +445,7 @@ void O1PathOnOff(DRAMC_CTX_T *p,uint u1OnOff)
   return;
 }
 
-int DramcWriteLeveling(DRAMC_CTX_T *p)
+DRAM_STATUS_T DramcWriteLeveling(DRAMC_CTX_T *p)
 {
   struct {
     byte local_50[4];
@@ -515,7 +518,7 @@ int DramcWriteLeveling(DRAMC_CTX_T *p)
     if (uVar5 == 0x10) {
       state.local_40[2] = 0xfc;
     }
-    if ((&p->write_leveling_shift)[p->rank] == '\0') {
+    if (p->arfgWriteLevelingInitShif[p->rank] == '\0') {
       state.local_40[3] = u1GetRank(p);
       if (7 < uVar5) {
         uVar5 = 0;
@@ -528,8 +531,8 @@ int DramcWriteLeveling(DRAMC_CTX_T *p)
           uVar5 = uVar5 + 1 & 0xff;
         } while (uVar5 < p->data_width >> 3);
       }
-      (&p->write_leveling_shift)[p->rank] = '\x01';
-      p->tx_perbit_init = '\0';
+      p->arfgWriteLevelingInitShif[p->rank] = '\x01';
+      p->fgTXPerbifInit[0] = '\0';
     }
     vIO32Write4BMsk(0x40e1c,0,0x3f000000);
     vIO32Write4BMsk(0x40e6c,0,0x3f000000);
@@ -671,7 +674,7 @@ int DramcWriteLeveling(DRAMC_CTX_T *p)
   return iVar1;
 }
 
-int DramcRxdqsGatingCal_PCDDR3(DRAMC_CTX_T *p)
+DRAM_STATUS_T DramcRxdqsGatingCal_PCDDR3(DRAMC_CTX_T *p)
 {
   struct {
     char local_a0[4];
@@ -950,7 +953,7 @@ void DramcGatingMode(DRAMC_CTX_T *p,uint u1Mode)
   return;
 }
 
-int DramcRxdqsGatingCal_PCDDR4(DRAMC_CTX_T *p)
+DRAM_STATUS_T DramcRxdqsGatingCal_PCDDR4(DRAMC_CTX_T *p)
 {
   struct {
     char local_b8[4];
@@ -1217,7 +1220,7 @@ LAB_9fa359e6:
     iVar2 = 0;
     do {
       *(byte *)((int)&state.local_ac + iVar2) = (byte)(state.local_6c[iVar2] + 0x10) & 0x1f;
-      uVar3 = (uint)state.local_70[iVar2] + (state.local_6c[iVar2] + 0x10 >> 5);
+      uVar3 = (uint)state.local_70[iVar2] + ((state.local_6c[iVar2] + 0x10) >> 5);
       uVar11 = uVar3 & 7;
       state.local_a8[iVar2] = (byte)uVar11;
       bVar10 = state.local_74[iVar2] + (char)(uVar3 >> 3);
@@ -1280,7 +1283,7 @@ LAB_9fa359e6:
   return iVar2;
 }
 
-int DramcRxWindowPerbitCal(DRAMC_CTX_T *p,uint u1UseTestEngine)
+DRAM_STATUS_T DramcRxWindowPerbitCal(DRAMC_CTX_T *p, U8 u1UseTestEngine)
 {
   struct {
     ushort local_240[80];
@@ -1548,7 +1551,8 @@ LAB_9fa360be:
     uVar6 = 0;
     do {
       state.local_1a0[uVar6 * 5 + 2] =
-           (ushort)((int)(short)state.local_1a0[uVar6 * 5 + 1] + (int)(short)state.local_1a0[uVar6 * 5] >> 1);
+           (ushort)(((int)(short)state.local_1a0[uVar6 * 5 + 1] +
+                     (int)(short)state.local_1a0[uVar6 * 5]) >> 1);
       uVar6 = uVar6 + 1 & 0xff;
     } while (uVar6 < uVar7);
   }
@@ -1743,7 +1747,7 @@ LAB_9fa36498:
   return state.local_24;
 }
 
-int DramcRxdatlatCal(DRAMC_CTX_T *p)
+DRAM_STATUS_T DramcRxdatlatCal(DRAMC_CTX_T *p)
 {
   uint uVar1;
 
@@ -1754,7 +1758,7 @@ int DramcRxdatlatCal(DRAMC_CTX_T *p)
   return 0;
 }
 
-int DramcTxWindowPerbitCal(DRAMC_CTX_T *p,int calType)
+DRAM_STATUS_T DramcTxWindowPerbitCal(DRAMC_CTX_T *p, DRAM_TX_PER_BIT_CALIBRATION_TYTE_T calType)
 {
   struct {
     ushort local_258[80];
@@ -1824,7 +1828,7 @@ int DramcTxWindowPerbitCal(DRAMC_CTX_T *p,int calType)
         uVar3 = uVar3 + 1 & 0xff;
       } while (uVar3 < uVar6);
     }
-    if ((&p->tx_perbit_init)[p->rank] == '\0') {
+    if (p->fgTXPerbifInit[p->rank] == '\0') {
       uVar6 = u4Dram_Register_Read(0x308a0);
       dq_ui_large_bak = (byte)(uVar6 >> (uVar13 << 2 & 0x1f)) & 7;
       uVar3 = (uVar13 + 4) * 4;
@@ -1833,7 +1837,7 @@ int DramcTxWindowPerbitCal(DRAMC_CTX_T *p,int calType)
       uVar13 = u4Dram_Register_Read(0x308a4);
       dq_ui_small_bak = (byte)(uVar13 >> (state.local_38 & 0x1f)) & 7;
       dq_oen_ui_small_bak = (byte)(uVar13 >> (uVar3 & 0x1f)) & 7;
-      (&p->tx_perbit_init)[p->rank] = '\x01';
+      p->fgTXPerbifInit[p->rank] = '\x01';
     }
     vSetCalibrationResult(p,8,1);
     uVar13 = p->data_width;
@@ -1978,7 +1982,7 @@ LAB_9fa36906:
         uVar1 = state.local_1b8[uVar13 * 5 + 1];
         state.local_118[uVar13 * 5 + 1] = uVar1;
         state.local_118[uVar13 * 5 + 3] = state.local_1b8[uVar13 * 5 + 3];
-        iVar2 = (int)(short)uVar7 + (int)(short)uVar1 >> 1;
+        iVar2 = ((int)(short)uVar7 + (int)(short)uVar1) >> 1;
         uVar7 = (ushort)iVar2;
         state.local_118[uVar13 * 5 + 2] = uVar7;
         if (iVar2 < (int)(uint)*puVar4) {
@@ -2004,7 +2008,7 @@ LAB_9fa36906:
     iVar2 = 0;
     min_backup = min_width;
     do {
-      uVar13 = (uint)*local_2c + (uint)state.local_48[iVar2 + 4] >> 1;
+      uVar13 = ((uint)*local_2c + (uint)state.local_48[iVar2 + 4]) >> 1;
       state.local_34 = (uint)dq_ui_small_bak;
       state.local_28 = (uint)dq_ui_large_bak;
       local_30 = (u8 *)(&state.dqm_pi[0] + iVar2);
@@ -2064,7 +2068,7 @@ LAB_9fa36906:
   return iVar2;
 }
 
-int DramcTxVrefDQCalibration(DRAMC_CTX_T *p)
+DRAM_STATUS_T DramcTxVrefDQCalibration(DRAMC_CTX_T *p)
 {
   struct {
     ushort local_100[104];
@@ -2109,7 +2113,7 @@ int DramcTxVrefDQCalibration(DRAMC_CTX_T *p)
         state.local_28 = state.local_30 | 0x40;
         DramcModeRegWrite_PC4(p,1,2,state.local_30 | 0x4c0);
         pause_polling(100);
-        (&p->tx_perbit_init)[p->rank] = '\0';
+        p->fgTXPerbifInit[p->rank] = '\0';
         u4DRAMdebugLOgEnable = 0;
         u4DRAMdebugLOgEnable2 = 0;
         p->sum_winsize = 0;

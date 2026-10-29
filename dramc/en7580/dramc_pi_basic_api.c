@@ -349,7 +349,7 @@ void Switch26MHzDisableDummyReadRefreshAllBank(DRAMC_CTX_T *p)
   return;
 }
 
-void EnableDramcPhyDCM(DRAMC_CTX_T *p,uint bEn)
+void EnableDramcPhyDCM(DRAMC_CTX_T *p, bool bEn)
 {
   if ((bEn & 0xff) == 0) {
     vIO32Write4BMsk_All(0x30038,0x20,0xc0000027);
@@ -378,20 +378,22 @@ void DramcRunTimeConfig(DRAMC_CTX_T *p)
   return;
 }
 
-void DramcSetRankEngine2(DRAMC_CTX_T *p,uint u1RankSel)
+void DramcSetRankEngine2(DRAMC_CTX_T *p, U8 u1RankSel)
 {
+  if (u1RankSel >= RANK_MAX)
+    return;
   vIO32Write4BMsk(0x30004,2,2);
   vIO32Write4BMsk(0x300a0,0,0x70000000);
   vIO32Write4BMsk(0x300a0,u1RankSel << 0x18,0x3000000);
   return;
 }
 
-uint DramcEngine1(DRAMC_CTX_T *p,uint test2_1,uint test2_2,int loopforever,uint period)
+U32 DramcEngine1(DRAMC_CTX_T *p, U32 test2_1, U32 test2_2, S16 loopforever, U8 period)
 {
   return 0;
 }
 
-int DramcEngine2Init(DRAMC_CTX_T *p,uint test2_1,uint test2_2,uint testaudpat,uint log2loopcount)
+DRAM_STATUS_T DramcEngine2Init(DRAMC_CTX_T *p, U32 test2_1, U32 test2_2, U8 testaudpat, U8 log2loopcount)
 {
   int iVar1;
 
@@ -426,7 +428,7 @@ int DramcEngine2Init(DRAMC_CTX_T *p,uint test2_1,uint test2_2,uint testaudpat,ui
   return iVar1;
 }
 
-uint DramcEngine2Run(DRAMC_CTX_T *p,int wr,uint testaudpat)
+U32 DramcEngine2Run(DRAMC_CTX_T *p, DRAM_TE_OP_T wr, U8 testaudpat)
 {
   uint uVar1;
   uint uVar2;
@@ -477,8 +479,7 @@ void DramcEngine2End(DRAMC_CTX_T *p)
   return;
 }
 
-uint DramcEngine2(DRAMC_CTX_T *p,int wr,uint test2_1,uint test2_2,uint testaudpat,int loopforever,
-                 uint period,uint log2loopcount)
+U32 DramcEngine2(DRAMC_CTX_T *p, DRAM_TE_OP_T wr, U32 test2_1, U32 test2_2, U8 testaudpat, S16 loopforever, U8 period, U8 log2loopcount)
 {
   uint val;
   uint uVar1;
@@ -578,7 +579,7 @@ uint DramcEngine2(DRAMC_CTX_T *p,int wr,uint test2_1,uint test2_2,uint testaudpa
   return uVar1;
 }
 
-uint TestEngineCompare(DRAMC_CTX_T *p)
+U32 TestEngineCompare(DRAMC_CTX_T *p)
 {
   uint uVar1;
   uint uVar2;
@@ -614,7 +615,7 @@ uint TestEngineCompare(DRAMC_CTX_T *p)
   return uVar1;
 }
 
-void DramcModeRegWrite_PC3(DRAMC_CTX_T *p,uint u1MRIdx,uint u4Value)
+void DramcModeRegWrite_PC3(DRAMC_CTX_T *p, U8 u1MRIdx, U32 u4Value)
 {
   uint uVar1;
 
@@ -634,7 +635,7 @@ void DramcModeRegWrite_PC3(DRAMC_CTX_T *p,uint u1MRIdx,uint u4Value)
   return;
 }
 
-void DramcModeRegWrite_PC4(DRAMC_CTX_T *p,uint u1BGIdx,uint u1MRIdx,uint u4Value)
+void DramcModeRegWrite_PC4(DRAMC_CTX_T *p, U8 u1BGIdx, U8 u1MRIdx, U32 u4Value)
 {
   uint uVar1;
 
@@ -649,7 +650,7 @@ void DramcModeRegWrite_PC4(DRAMC_CTX_T *p,uint u1BGIdx,uint u1MRIdx,uint u4Value
   return;
 }
 
-int DramcInit(DRAMC_CTX_T *p)
+DRAM_STATUS_T DramcInit(DRAMC_CTX_T *p)
 {
   uint uVar1;
   const ushort *puVar2;
@@ -1333,7 +1334,7 @@ void DramcHWGatingInit(DRAMC_CTX_T *p)
   return;
 }
 
-void DramcHWGatingOnOff(DRAMC_CTX_T *p,uint u1OnOff)
+void DramcHWGatingOnOff(DRAMC_CTX_T *p, U8 u1OnOff)
 {
   vIO32Write4BMsk_All(0x30200,0,0x1000000);
   vIO32Write4BMsk_All(0x30200,0,0x400000);

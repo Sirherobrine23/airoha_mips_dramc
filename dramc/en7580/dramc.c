@@ -3,25 +3,40 @@
 int prom_printf_s(char *str, ...) { prom_puts(str); return 0; }
 u32 calculate_dram_size(void)
 {
-	volatile u32 *base = (void *)0xc0080000;
+#ifdef EN7580_BOOTEXT
+	/* tcboot does not provide the vendor's KSEG2 TLB map for this probe. */
+	const u32 base_addr = 0xa0080000u;
+#else
+	const u32 base_addr = 0xc0080000u;
+#endif
+	volatile u32 *base = (void *)base_addr;
 	u32 size = 32u << 20;
 	u32 maximum = detected_dram_type == 0 ? 0x40000000u : 0x20000000u;
 	prom_puts("Calculate size.\n");
 	while (size < maximum) {
-		volatile u32 *probe = (void *)(0xc0080000u + size);
+		volatile u32 *probe = (void *)(base_addr + size);
 		u32 original;
+#ifdef EN7580_BOOTEXT
+		u32 retries = 1000000;
+#endif
 		*base = 0x12345678; pause_polling(2);
 		*probe = 0x87654321; pause_polling(2);
 		for (;;) {
 			u32 observed = *probe;
 			original = *base;
 			if (observed == 0x87654321) break;
+#ifdef EN7580_BOOTEXT
+			if (!--retries) {
+				prom_puts("dram probe timeout\n");
+				return 0;
+			}
+#endif
 			*probe = 0x87654321;
 		}
 		if (original == 0x87654321) break;
 		if (original != 0x12345678) {
 			prom_puts("dram r/w error!\naddr=0x");
-			prom_print_hex(0xc0080000, 8); prom_puts("\n");
+			prom_print_hex(base_addr, 8); prom_puts("\n");
 			prom_print_hex(original, 8); prom_puts("\n");
 			return 0;
 		}

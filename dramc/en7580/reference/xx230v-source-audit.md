@@ -72,8 +72,10 @@ the EN7580 values come from its preserved objects and recovered context:
 XX230v inserts `TYPE_PCDDR2` before DDR3 and adds `clk_src` to the
 context. Its pinmux enum also inserts DDR2/package modes. Importing these
 definitions unchanged would reinterpret both EN7580 context fields and
-the preserved timing-table type identifiers. The recovered header now
-names the EN7580 DDR3/DDR4 values and checks its critical field offsets.
+the preserved timing-table type identifiers. The active port now imports the separate EN7580 headers under
+`includes/dramc/en7580/` and checks these critical field offsets. Those
+headers match the recovered ABI; the XX230v definitions in this table
+remain a distinct EN7523 configuration.
 
 Changing only `fcFOR_CHIP_ID` is insufficient: the uploaded pinmux enum
 and physical-base table are themselves guarded by the EN7523 selector.

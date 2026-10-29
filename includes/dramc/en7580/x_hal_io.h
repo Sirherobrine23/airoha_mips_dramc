@@ -33,7 +33,8 @@
 #define AC_MSKDW        18
 
 #define Fld2Msk32(fld)  /*lint -save -e504 */ (((U32)0xffffffff>>(32-Fld_wid(fld)))<<Fld_shft(fld)) /*lint -restore */
-#define P_Fld(val,fld) ((sizeof(upk)>1)?Fld2Msk32(fld):(((UINT32)(val)&((UINT32)(1<<Fld_wid(fld))-1))<<Fld_shft(fld)))
+/* Use the field mask directly: shifting 1 by 32 is undefined in C. */
+#define P_Fld(val,fld) ((sizeof(upk)>1)?Fld2Msk32(fld):(((UINT32)(val)<<Fld_shft(fld))&Fld2Msk32(fld)))
 
 extern U32 u4Dram_Register_Read(U32 u4reg_addr); 
 extern U8 ucDram_Register_Write(U32 u4reg_addr, U32 u4reg_value);

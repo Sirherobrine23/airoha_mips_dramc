@@ -119,7 +119,11 @@ int spram_preprocess(void)
 	 * The XGZ030 system.o selects FPGA/ASIC clocks, SPI-controller ECC and
 	 * DDR3/DDR4 package information from straps/eFuse before calibration.
 	 */
+#ifdef EN7580_BOOTEXT
+	init_system(1);
+#else
 	init_system(0);
+#endif
 	time_polling_init();
 	return 0;
 }

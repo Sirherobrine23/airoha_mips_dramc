@@ -39,6 +39,20 @@ define bootext/compile/composite
 	@mv -f "$(BOOTEXT_OUTPUT).tmp" "$(BOOTEXT_OUTPUT)"
 endef
 
+define bootext/compile/dramc-only
+	@set -eu; \
+		entry=`$(TOOL_NM) -n "$(BOOTEXT_DDR_ELF)" | awk '$$3 == "ddr_entry" { print $$1; exit }'`; \
+		end=`$(TOOL_NM) -n "$(BOOTEXT_DDR_ELF)" | awk '$$3 == "_end" { print $$1; exit }'`; \
+		test -n "$$entry" -a -n "$$end" || { echo 'missing EN7580 bootext symbols' >&2; exit 1; }; \
+		test $$((0x$$entry)) -eq $$(( $(BOOTEXT_BASE) )) || { echo 'unexpected EN7580 bootext entry' >&2; exit 1; }; \
+		test $$((0x$$end)) -le $$(( $(BOOTEXT_SRAM_LIMIT) )) || { echo 'EN7580 bootext overlaps the SRAM stack' >&2; exit 1; }; \
+		test $$(wc -c < "$(BOOTEXT_DDR_IMAGE)") -le $$(( $(BOOTEXT_SRAM_LIMIT) - $(BOOTEXT_BASE) )) || { \
+			echo 'EN7580 bootext binary exceeds its SRAM window' >&2; exit 1; }; \
+		mkdir -p "$(dir $(BOOTEXT_OUTPUT))"; \
+		cp "$(BOOTEXT_DDR_IMAGE)" "$(BOOTEXT_OUTPUT).tmp"; \
+		mv -f "$(BOOTEXT_OUTPUT).tmp" "$(BOOTEXT_OUTPUT)"
+endef
+
 define bootext/check/checked-wrapper
 	@set -eu; \
 		ddr_end=`$(TOOL_NM) -n "$(BOOTEXT_DDR_ELF)" | awk '$$3 == "_end" { print $$1; exit }'`; \

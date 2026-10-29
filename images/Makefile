@@ -189,6 +189,26 @@ $(1)-bootext: $(1)-bootext-dramc $(1)-bootext-chainloader $$(HOST_TOOL)
 	@printf '  BOOTEXT    %s\n' "$$(BOOTEXT_OUTPUT)"
 endef
 
+define Device/Build/BootextDramc
+$(call Device/Export,$(1)-bootext)
+$(call Device/Export,$(1)-bootext-dramc)
+
+$(1)-bootext-dramc: DRAMC_BUILD := $$(BOOTEXT_DDR_WORK)/.dramc
+$(1)-bootext-dramc: DRAMC_OUTPUT := $$(BOOTEXT_DDR_IMAGE)
+$(1)-bootext-dramc: DDR_CPPFLAGS := $$(BOOTEXT_DRAMC_CPPFLAGS)
+$(1)-bootext-dramc: SIZE_OPT := $$(BOOTEXT_SIZE_OPT)
+
+.PHONY: $(1)-bootext $(1)-bootext-dramc
+$(1): $(1)-bootext
+
+$(1)-bootext-dramc:
+	$$(call dramc/compile)
+
+$(1)-bootext: $(1)-bootext-dramc
+	$$(call bootext/compile/dramc-only)
+	@printf '  BOOTEXT    %s\n' "$$(BOOTEXT_OUTPUT)"
+endef
+
 define Device/Build/BootextUnsupported
 .PHONY: $(1)-bootext
 $(1)-bootext:
@@ -220,7 +240,7 @@ define Device/Register
 	$(eval $(call Device/Build/Common,$(1)))
 
 	$(if $(filter y,$(SOC_RECOVERY_CHAINLOADER)),$(eval $(call Device/Build/Recovery,$(1))),$(eval $(call Device/Build/RecoveryUnsupported,$(1))))
-	$(if $(filter y,$(SOC_BOOTEXT)),$(eval $(call Device/Build/Bootext,$(1))),$(eval $(call Device/Build/BootextUnsupported,$(1))))
+	$(if $(filter y,$(SOC_BOOTEXT)),$(if $(filter dramc-only,$(BOOTEXT_MODE)),$(eval $(call Device/Build/BootextDramc,$(1))),$(eval $(call Device/Build/Bootext,$(1)))),$(eval $(call Device/Build/BootextUnsupported,$(1))))
 	$(if $(filter y,$(SOC_TCBOOT)),$(eval $(call Device/Build/TCBoot,$(1))),$(eval $(call Device/Build/TCBootUnsupported,$(1))))
 
 	$(if $(value Device/$(1)/extra),$(eval $(call Device/$(1)/extra,$(1))))

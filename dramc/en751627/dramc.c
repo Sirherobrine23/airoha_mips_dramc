@@ -158,7 +158,7 @@ int main(void)
         check_column_bank();
     prom_puts("Calculate size.\n");
     dram_size = detect_dram_size_mib();
-    REG32(SYS_GLOBAL_PARM) = (REG32(SYS_GLOBAL_PARM) & ~0xfffu) | (u32)dram_size;
+    REG32(SYS_GLOBAL_PARM) = ((REG32(SYS_GLOBAL_PARM)) & ~(0xffu << 20)) | ((((u32)dram_size >> 4) & 0xffu) << 20);
     set_TRFC();
     value = DRAMC_READ_REG(DRAMC_MEMPLL6) & 0xff;
     if (value == 0xaa) {

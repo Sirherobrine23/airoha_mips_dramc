@@ -26,17 +26,17 @@ void start_spram(void)
 			readl(0xbfa201a8) = 0x402;
 			readl(0xbfa201a8) = 0x406;
 			readl(0xbfb00284) = (readl(0xbfb00284) & 0xff000fff) | 0x000af000;
-		} else if (isEN7526F || isEN7526D || isEN7513 || isEN7526G ||
-				   isEN7521G || isEN7513G || isEN7586) {
+		} else if (isEN7526F || isEN7526D || isEN7513 || isEN7526G || isEN7521G ||
+			   isEN7513G || isEN7586) {
 			readl(0xbfa20144) = 0x12;
 			readl(0xbfa2019c) = 0x05102308;
 			readl(0xbfa201ac) = 0x03800000;
 			readl(0xbfa201a8) = 0x402;
 			readl(0xbfa201a8) = 0x406;
-			readl(0xbfb00284) = (readl(0xbfb00284) & 0xff000fff) |
-					    0x000e1000;
+			readl(0xbfb00284) = (readl(0xbfb00284) & 0xff000fff) | 0x000e1000;
 		} else {
-			while (1);
+			while (1)
+				;
 		}
 
 		if (isEN7521S || isEN7521F)

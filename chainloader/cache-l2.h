@@ -3,6 +3,7 @@
 /* Config2 describes the 1004K secondary cache. Keep Config1 in t0 for
  * the following I-cache loop, and s0 for the payload handoff address.
  */
+/* clang-format off */
 .macro en751627_flush_l2
 	mfc0 $t1, $16, 2
 	ext $t2, $t1, 4, 4
@@ -27,4 +28,5 @@
 	sync
 .Ll2_done\@:
 .endm
+/* clang-format on */
 #endif

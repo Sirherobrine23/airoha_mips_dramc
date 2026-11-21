@@ -15,7 +15,7 @@
 		},
 		"C++": {
 			"show_edit_predictions": false,
-			"tab_size": 4,
+			"tab_size": 8,
 			"formatter": "language_server",
 			"hard_tabs": true,
 			"enable_language_server": true,
@@ -25,7 +25,7 @@
 		},
 		"C": {
 			"show_edit_predictions": false,
-			"tab_size": 4,
+			"tab_size": 8,
 			"formatter": "language_server",
 			"hard_tabs": true,
 			"enable_language_server": true,

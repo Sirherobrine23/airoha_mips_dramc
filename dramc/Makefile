@@ -71,7 +71,7 @@ define dramc/compile/source
 			fi; \
 		done
 	@printf '  LD         %s\n' "$(DRAMC_BUILD)/dramc.elf"
-	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(DRAMC_LDS)" \
+	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) $(DRAMC_LDFLAGS) -T "$(DRAMC_LDS)" \
 		-Map "$(DRAMC_BUILD)/dramc.map" -o "$(DRAMC_BUILD)/dramc.elf" \
 		$(addprefix $(DRAMC_BUILD)/,$(DRAMC_OBJS))
 	@printf '  OBJCOPY    %s\n' "$(DRAMC_OUTPUT)"

@@ -8,11 +8,11 @@ struct cpu_launch {
 	u32 flags;
 };
 
-#define CPU_LAUNCH_BASE 0xbfa40140u
-#define LAUNCH_READY 1u
-#define LAUNCH_GO 2u
-#define LAUNCH_GONE 4u
-#define LAUNCH_TIMEOUT 1000000u
+#define CPU_LAUNCH_BASE	0xbfa40140u
+#define LAUNCH_READY	1u
+#define LAUNCH_GO	2u
+#define LAUNCH_GONE	4u
+#define LAUNCH_TIMEOUT	1000000u
 
 extern void en751627_secondary_park(void);
 

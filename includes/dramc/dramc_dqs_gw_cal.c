@@ -12,8 +12,7 @@ int dramc_ta2(unsigned int start, unsigned int len, void *arg)
 	unsigned int counter;
 
 	(void)arg;
-	DRAMC_WRITE_REG(((start >> 8) & 0x001fffffU) | 0x55000000U,
-			DRAMC_TEST2_1);
+	DRAMC_WRITE_REG(((start >> 8) & 0x001fffffU) | 0x55000000U, DRAMC_TEST2_1);
 	DRAMC_WRITE_REG((len & 0x00ffffffU) | 0xaa000000U, DRAMC_TEST2_2);
 	DRAMC_WRITE_SET(DRAMC_TA2_READ_ENABLE, DRAMC_CONF2);
 
@@ -32,16 +31,18 @@ void dqsi_gw_dly_coarse_factor_handler(unsigned int value)
 {
 	/* Legacy EN7512 uses three DQSINCTL bits, unlike newer DRAMC IP. */
 	DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_DQSCTL1) & ~0x07000000U) |
-			(((value >> 2) & 7U) << 24), DRAMC_DQSCTL1);
-	DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_DQSGCTL) & ~0x33U) |
-			(value & 3U) | ((value & 3U) << 4), DRAMC_DQSGCTL);
+				(((value >> 2) & 7U) << 24),
+			DRAMC_DQSCTL1);
+	DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_DQSGCTL) & ~0x33U) | (value & 3U) |
+				((value & 3U) << 4),
+			DRAMC_DQSGCTL);
 }
 
 void dqsi_gw_dly_fine_factor_handler(unsigned int value)
 {
 	value &= 0x7f;
-	DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_R0DQSIEN) & 0x80000000U) |
-			value | (value << 8) | (value << 16) | (value << 24),
+	DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_R0DQSIEN) & 0x80000000U) | value | (value << 8) |
+				(value << 16) | (value << 24),
 			DRAMC_R0DQSIEN);
 }
 
@@ -60,8 +61,7 @@ int dqs_gw_calib(void)
 {
 	int coarse, fine;
 
-	for (coarse = DQS_GW_COARSE_START; coarse <= DQS_GW_COARSE_END;
-	     coarse++) {
+	for (coarse = DQS_GW_COARSE_START; coarse <= DQS_GW_COARSE_END; coarse++) {
 		int index = coarse - DQS_GW_COARSE_START;
 
 		dqsi_gw_dly_coarse_factor_handler(coarse);
@@ -73,13 +73,11 @@ int dqs_gw_calib(void)
 			dqsi_gw_dly_fine_factor_handler(fine);
 			dqs_gw_counter_reset();
 			dqs_gw_test_cases_1[0].start = DRAM_PROBE_BASE;
-			pass = dqs_gw_test_cases_1[0].fn(
-				dqs_gw_test_cases_1[0].start,
-				dqs_gw_test_cases_1[0].len,
-				dqs_gw_test_cases_1[0].arg) >= 0;
+			pass = dqs_gw_test_cases_1[0].fn(dqs_gw_test_cases_1[0].start,
+							 dqs_gw_test_cases_1[0].len,
+							 dqs_gw_test_cases_1[0].arg) >= 0;
 			if (pass)
-				dqs_gw[index * DQS_GW_WORDS_PER_COARSE + word] |=
-					BIT(bit);
+				dqs_gw[index * DQS_GW_WORDS_PER_COARSE + word] |= BIT(bit);
 			score += pass;
 		}
 	}
@@ -128,8 +126,7 @@ int do_dqs_gw_calib_1(void)
 		int pass_count = 0;
 
 		for (word = 0; word < DQS_GW_WORDS_PER_COARSE; word++)
-			pass_count += popcount32(
-				dqs_gw[coarse * DQS_GW_WORDS_PER_COARSE + word]);
+			pass_count += popcount32(dqs_gw[coarse * DQS_GW_WORDS_PER_COARSE + word]);
 
 		/* A later coarse value wins a tie, as in the vendor objects. */
 		if (pass_count >= max_pass) {
@@ -140,8 +137,7 @@ int do_dqs_gw_calib_1(void)
 
 	if (max_pass) {
 		for (word = 0; word < DQS_GW_WORDS_PER_COARSE; word++) {
-			int bit = first_set(
-				dqs_gw[best_index * DQS_GW_WORDS_PER_COARSE + word]);
+			int bit = first_set(dqs_gw[best_index * DQS_GW_WORDS_PER_COARSE + word]);
 
 			if (bit >= 0) {
 				best_fine = word * 32 + bit + max_pass / 2;

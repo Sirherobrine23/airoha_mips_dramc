@@ -8,8 +8,7 @@ static unsigned int timer_ldv_reg(unsigned int timer)
 	return CR_TIMER_BASE + 0x04 + timer * 8;
 }
 
-void timer_Configure(unsigned char n, unsigned char en, unsigned char mode,
-		     unsigned char halt)
+void timer_Configure(unsigned char n, unsigned char en, unsigned char mode, unsigned char halt)
 {
 	unsigned int w = readl(CR_TIMER_CTL);
 	w |= ((unsigned int)en << n) | ((unsigned int)mode << (n + 8)) |
@@ -17,8 +16,8 @@ void timer_Configure(unsigned char n, unsigned char en, unsigned char mode,
 	readl(CR_TIMER_CTL) = w;
 }
 
-void timerSet(unsigned int n, unsigned int time, unsigned int en,
-	      unsigned int mode, unsigned int halt)
+void timerSet(unsigned int n, unsigned int time, unsigned int en, unsigned int mode,
+	      unsigned int halt)
 {
 	unsigned int w = (unsigned int)get_SYS_HCLK() * 1000U / 2U;
 	readl(timer_ldv_reg(n)) = w * time;
@@ -27,15 +26,13 @@ void timerSet(unsigned int n, unsigned int time, unsigned int en,
 
 void time_polling_init(void)
 {
-	timerSet(1, TIMERTICKS_10MS, ENABLE, TIMER_TOGGLEMODE,
-		 TIMER_HALTDISABLE);
+	timerSet(1, TIMERTICKS_10MS, ENABLE, TIMER_TOGGLEMODE, TIMER_HALTDISABLE);
 }
 
 void pause_polling(unsigned int us)
 {
 	volatile unsigned int now, last, ticks, ldv;
-	unsigned int unit = (unsigned int)get_SYS_HCLK() * 500U,
-		     wait = us * (unit / 1000U);
+	unsigned int unit = (unsigned int)get_SYS_HCLK() * 500U, wait = us * (unit / 1000U);
 	ldv = readl(CR_TIMER1_LDV);
 	ticks = 0;
 	last = readl(CR_TIMER1_VLR);

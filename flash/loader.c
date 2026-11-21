@@ -4,13 +4,14 @@
 #include "decompress.h"
 
 /* Reserved below the payload window, within the minimum 32 MiB DRAM. */
-#define DECOMP_WORK_ADDR 0x80100000U
-#define DECOMP_INPUT_ADDR 0x80200000U
+#define DECOMP_WORK_ADDR	0x80100000U
+#define DECOMP_INPUT_ADDR	0x80200000U
 
 static void __attribute__((noreturn)) fail(const char *why)
 {
 	uart_printf(why);
-	for (;;);
+	for (;;)
+		;
 }
 
 static u32 be32(const u8 *p)
@@ -48,8 +49,7 @@ void __attribute__((noreturn)) loader_main(void)
 	u32 compression = ECONET_COMP_NONE, input_addr;
 
 	uart_printf("Econet flash payload loader\n");
-	if (econet_sfc_init() ||
-	    econet_sfc_read(PAYLOAD_OFFSET, hdr, ECONET_BOOT_HEADER_SIZE))
+	if (econet_sfc_init() || econet_sfc_read(PAYLOAD_OFFSET, hdr, ECONET_BOOT_HEADER_SIZE))
 		fail("payload descriptor read failed\r\n");
 
 	if (be32(hdr) != ECONET_BOOT_MAGIC)
@@ -88,16 +88,13 @@ void __attribute__((noreturn)) loader_main(void)
 			fail("invalid compression metadata\r\n");
 	}
 
-	if (payload_off < header_size ||
-	    payload_off > IMAGE_LIMIT - PAYLOAD_OFFSET ||
-	    !size || size > IMAGE_LIMIT - PAYLOAD_OFFSET - payload_off ||
-	    load < PAYLOAD_RAM_MIN || load >= PAYLOAD_RAM_MAX ||
-	    !unpacked || unpacked > PAYLOAD_RAM_MAX - load ||
+	if (payload_off < header_size || payload_off > IMAGE_LIMIT - PAYLOAD_OFFSET || !size ||
+	    size > IMAGE_LIMIT - PAYLOAD_OFFSET - payload_off || load < PAYLOAD_RAM_MIN ||
+	    load >= PAYLOAD_RAM_MAX || !unpacked || unpacked > PAYLOAD_RAM_MAX - load ||
 	    entry < load || entry >= load + unpacked)
 		fail("invalid payload descriptor range\r\n");
 
-	uart_printf("Loading payload, load=0x%x, entry=0x%x, size=0x%x\n",
-		    load, entry, size);
+	uart_printf("Loading payload, load=0x%x, entry=0x%x, size=0x%x\n", load, entry, size);
 	input_addr = compression ? DECOMP_INPUT_ADDR : load;
 	prepare_destination(input_addr, size);
 	if (compression)
@@ -112,13 +109,13 @@ void __attribute__((noreturn)) loader_main(void)
 
 	if (compression) {
 		prepare_destination(DECOMP_WORK_ADDR, ECONET_DECOMP_WORK_SIZE);
-		uart_printf("Decompressing payload, algorithm=%x, size=0x%x\n",
-			    compression, unpacked);
+		uart_printf("Decompressing payload, algorithm=%x, size=0x%x\n", compression,
+			    unpacked);
 		if (econet_decompress(compression,
-			(const u8 *)(uintptr_t)(input_addr | 0x20000000U), size,
-			(u8 *)(uintptr_t)(load | 0x20000000U), unpacked,
-			(void *)(uintptr_t)(DECOMP_WORK_ADDR | 0x20000000U),
-			ECONET_DECOMP_WORK_SIZE))
+				      (const u8 *)(uintptr_t)(input_addr | 0x20000000U), size,
+				      (u8 *)(uintptr_t)(load | 0x20000000U), unpacked,
+				      (void *)(uintptr_t)(DECOMP_WORK_ADDR | 0x20000000U),
+				      ECONET_DECOMP_WORK_SIZE))
 			fail("payload decompression failed\r\n");
 	}
 	if (version == ECONET_BOOT_VERSION_V2 &&

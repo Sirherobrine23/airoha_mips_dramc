@@ -1,16 +1,12 @@
 /**
  * SPDX-License-Identifier: GPL-2.0-or-later
- * 
+ *
  * Airoha Secure Headers
  */
 #ifndef __SECURE_HEADER_H__
 #define __SECURE_HEADER_H__
 
-enum AES_MODE {
-	AES_MODE_DISABLE = 0,
-	AES_MODE_ECB,
-	AES_MODE_MAX
-};
+enum AES_MODE { AES_MODE_DISABLE = 0, AES_MODE_ECB, AES_MODE_MAX };
 
 struct AES_INFO {
 	unsigned char iv[16];
@@ -55,10 +51,7 @@ struct SECURE_HEADER {
 	};
 };
 
-enum SIGNATURE_VERIFY_STATUS {
-	SIGNATURE_VERIFY_STATUS_CORRECT = 0,
-	SIGNATURE_VERIFY_INCORRECT
-};
+enum SIGNATURE_VERIFY_STATUS { SIGNATURE_VERIFY_STATUS_CORRECT = 0, SIGNATURE_VERIFY_INCORRECT };
 
 struct secure_img {
 	struct SECURE_HEADER *sHeader;

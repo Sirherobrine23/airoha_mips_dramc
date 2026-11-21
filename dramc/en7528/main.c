@@ -14,17 +14,17 @@ unsigned long kernelsp;
 
 int start_spram(int is_bootext)
 {
-    void (*next_stage)(void);
+	void (*next_stage)(void);
 
-    spram_preprocess();
+	spram_preprocess();
 
-    if (is_bootext == 1)
-        main();
+	if (is_bootext == 1)
+		main();
 
-    spram_postprocess();
+	spram_postprocess();
 
-    next_stage = (void (*)(void))(unsigned long)REG32(SYS_BOOT_JUMP);
-    next_stage();
+	next_stage = (void (*)(void))(unsigned long)REG32(SYS_BOOT_JUMP);
+	next_stage();
 
-    return 0;
+	return 0;
 }

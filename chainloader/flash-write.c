@@ -2,7 +2,7 @@
 #include "chainloader.h"
 #include "../flash/sfc.h"
 
-#define TCBOOT_FLASH_OFFSET 0x00000000U
+#define TCBOOT_FLASH_OFFSET	0x00000000U
 
 int chainloader_flash_tcboot(const void *image, u32 len)
 {

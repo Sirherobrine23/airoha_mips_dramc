@@ -4,15 +4,15 @@
 
 #include <stdint.h>
 
-#define AIROHA_UART_BASE		0xbfbf0000u
-#define AIROHA_UART_RBR			0x00u
-#define AIROHA_UART_THR			0x00u
-#define AIROHA_UART_IER			0x04u
-#define AIROHA_UART_LSR			0x14u
-#define AIROHA_UART_LSR_DR		0x01u
+#define AIROHA_UART_BASE	0xbfbf0000u
+#define AIROHA_UART_RBR		0x00u
+#define AIROHA_UART_THR		0x00u
+#define AIROHA_UART_IER		0x04u
+#define AIROHA_UART_LSR		0x14u
+#define AIROHA_UART_LSR_DR	0x01u
 #define AIROHA_UART_LSR_THRE	0x20u
 #define AIROHA_UART_LSR_TEMT	0x40u
-#define AIROHA_UART_LSR_ERR		0x1eu /* OE | PE | FE | BI */
+#define AIROHA_UART_LSR_ERR	0x1eu /* OE | PE | FE | BI */
 
 void uart_putc(char c);
 

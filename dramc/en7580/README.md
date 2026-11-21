@@ -46,8 +46,10 @@ The following integration corrections are explicit:
 - Invalid calibration IDs are ignored before shifting a bit mask.
 - `P_Fld` uses the field mask directly, avoiding undefined `1 << 32` in
   full-word fields and signed shifts into bit 31.
-- Clang uses `-Oz` for this SoC because `-Os` exceeds the SRAM allocation.
-  The linker continues to enforce the original stack reservation.
+- Clang uses `-Oz`, per-function/data sections and linker garbage collection
+  for this SoC's normal and bootext payloads. This removes unreferenced code
+  and data so the bootext also fits its SRAM allocation. The linker continues
+  to enforce the original stack reservation.
 
 The original PLL values, timing rows, DDR3/DDR4 choices and calibration
 selection rules are retained. The supplied header is a bring-up preset;

@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
 #include "chainloader.h"
 
-
 static void watchdog_kick(void)
 {
 	u32 val = mmio_read32(CR_TIMER_CTL);
@@ -49,7 +48,7 @@ static void calibrate(u32 t0, u32 chars)
 		return;
 	per_char = dt / chars;
 	if (per_char < 8u || per_char > 400000u)
-		return;			/* implausible: stay on fallback */
+		return; /* implausible: stay on fallback */
 
 	per_sec = per_char * CONSOLE_CPS;
 	if (per_sec < 1000000u || per_sec > 2000000000u)
@@ -178,17 +177,14 @@ static u32 crc32_ieee(const volatile u8 *buf, u32 len)
 	return ~crc;
 }
 
-
 static u32 get_be32(const u8 *p)
 {
-	return ((u32)p[0] << 24) | ((u32)p[1] << 16) |
-	       ((u32)p[2] << 8) | (u32)p[3];
+	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | (u32)p[3];
 }
 
 static u32 get_be32_volatile(const volatile u8 *p)
 {
-	return ((u32)p[0] << 24) | ((u32)p[1] << 16) |
-	       ((u32)p[2] << 8) | (u32)p[3];
+	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | (u32)p[3];
 }
 
 static int string_eq(const char *a, const char *b)
@@ -292,9 +288,8 @@ static int fdt_name_eq(const char *node, const char *want)
 }
 
 /* Find a property in /level1 or /level1/level2. */
-static int fdt_find_prop(const struct fdt_view *v, const char *level1,
-			 const char *level2, const char *prop,
-			 const u8 **value, u32 *value_len)
+static int fdt_find_prop(const struct fdt_view *v, const char *level1, const char *level2,
+			 const char *prop, const u8 **value, u32 *value_len)
 {
 	const u8 *p = v->structure;
 	const char *nodes[4] = { 0 };
@@ -338,8 +333,7 @@ static int fdt_find_prop(const struct fdt_view *v, const char *level1,
 			if (!fdt_cstr_len((const u8 *)name, v->strings_end, &nlen))
 				return 0;
 
-			if (string_eq(name, prop) && depth >= 1 &&
-			    fdt_name_eq(nodes[1], level1) &&
+			if (string_eq(name, prop) && depth >= 1 && fdt_name_eq(nodes[1], level1) &&
 			    ((!level2 && depth == 1) ||
 			     (level2 && depth == 2 && fdt_name_eq(nodes[2], level2)))) {
 				*value = p;
@@ -358,8 +352,7 @@ static int fdt_find_prop(const struct fdt_view *v, const char *level1,
 	return 0;
 }
 
-static int fdt_first_child(const struct fdt_view *v, const char *parent,
-			   char *name, u32 name_len)
+static int fdt_first_child(const struct fdt_view *v, const char *parent, char *name, u32 name_len)
 {
 	const u8 *p = v->structure;
 	const char *nodes[4] = { 0 };
@@ -456,9 +449,8 @@ static int parse_legacy(const u8 *buf, u32 len, struct boot_image *img)
 	load = get_be32(buf + 16);
 	entry = get_be32(buf + 20);
 	dcrc = get_be32(buf + 24);
-	if (!size || size > len - IH_HEADER_SIZE ||
-	    buf[29] != IH_ARCH_MIPS || buf[30] != IH_TYPE_FIRMWARE ||
-	    buf[31] != IH_COMP_NONE)
+	if (!size || size > len - IH_HEADER_SIZE || buf[29] != IH_ARCH_MIPS ||
+	    buf[30] != IH_TYPE_FIRMWARE || buf[31] != IH_COMP_NONE)
 		return -1;
 	if (crc32_ieee(buf + IH_HEADER_SIZE, size) != dcrc)
 		return -1;
@@ -543,8 +535,7 @@ static int parse_fit(const u8 *buf, u32 len, struct boot_image *img)
 	    !prop_string_eq(p, n, "mips"))
 		return -1;
 	if (fdt_find_prop(&v, "images", firmware, "type", &p, &n) &&
-	    !prop_string_eq(p, n, "firmware") &&
-	    !prop_string_eq(p, n, "standalone") &&
+	    !prop_string_eq(p, n, "firmware") && !prop_string_eq(p, n, "standalone") &&
 	    !(kernel_ref && prop_string_eq(p, n, "kernel")))
 		return -1;
 
@@ -647,7 +638,7 @@ static void move_payload(u8 *dst, const u8 *src, u32 len)
 
 /* Deferred diagnostics: nothing can be printed while the link is live. */
 static u32 err_count;
-static u32 err_first_kind;	/* 1 hdr, 2 timeout, 3 trailer, 4 sequence */
+static u32 err_first_kind; /* 1 hdr, 2 timeout, 3 trailer, 4 sequence */
 static u32 err_first_blk;
 static u32 err_first_exp;
 static u32 err_first_len;
@@ -757,8 +748,7 @@ static u32 xmodem_receive(void)
 		if (plen == 1024u)
 			stat_1k = 1;
 
-		if (!uart_getc_to(&blk, BYTE_MS) ||
-		    !uart_getc_to(&blki, BYTE_MS)) {
+		if (!uart_getc_to(&blk, BYTE_MS) || !uart_getc_to(&blki, BYTE_MS)) {
 			note_error(2, 0, expected, plen, 0, 0);
 			goto resync;
 		}
@@ -839,7 +829,7 @@ static u32 xmodem_receive(void)
 		}
 		continue;
 
-resync:
+	resync:
 		if (err_count >= MAX_ERRORS) {
 			uart_putc(CAN);
 			uart_putc(CAN);
@@ -878,8 +868,7 @@ static int self_check(void)
 	u32 nchunks = (len + CHK_CHUNK - 1u) / CHK_CHUNK;
 	u32 i, n, off, bad = 0, first_bad = 0;
 
-	uart_printf(" self len=0x%08x blocks=0x%08x",
-		    (unsigned int)len, (unsigned int)nchunks);
+	uart_printf(" self len=0x%08x blocks=0x%08x", (unsigned int)len, (unsigned int)nchunks);
 
 	for (i = 0; i < nchunks; i++) {
 		if (chunk_crc(img, len, i) != get_be32_volatile(tab + i * 4u)) {
@@ -930,12 +919,12 @@ static void halt(void) __attribute__((noreturn));
 static void report(void)
 {
 	uart_printf("\nblocks=0x%08x dup=0x%08x tries=0x%08x mode=%s%s err=0x%08x lsrerr=0x%08x",
-		    (unsigned int)stat_blocks, (unsigned int)stat_dups,
-		    (unsigned int)stat_tries, stat_1k ? "1k/" : "128/",
-		    stat_csum ? "csum" : "crc16", (unsigned int)err_count,
+		    (unsigned int)stat_blocks, (unsigned int)stat_dups, (unsigned int)stat_tries,
+		    stat_1k ? "1k/" : "128/", stat_csum ? "csum" : "crc16", (unsigned int)err_count,
 		    (unsigned int)rx_lsr_err);
 	if (err_count) {
-		uart_printf("\nfirst: kind=0x%08x blk=0x%08x exp=0x%08x at=0x%08x got=0x%08x want=0x%08x",
+		uart_printf("\nfirst: kind=0x%08x blk=0x%08x exp=0x%08x at=0x%08x got=0x%08x "
+			    "want=0x%08x",
 			    (unsigned int)err_first_kind, (unsigned int)err_first_blk,
 			    (unsigned int)err_first_exp, (unsigned int)err_first_len,
 			    (unsigned int)err_first_got, (unsigned int)err_first_want);
@@ -1013,7 +1002,7 @@ static int receive_and_flash_tcboot(void)
 			    (unsigned int)TCBOOT_FLASH_SIZE_MIN);
 		return -1;
 	}
-	
+
 	/*
 	 * The entire 1 MiB image is now resident in DRAM.  Only after a
 	 * complete XMODEM transfer, exact-size check and CRC calculation do we
@@ -1119,9 +1108,8 @@ void chainloader_main(void)
 		halt();
 	}
 
-	uart_printf("image=%s size=0x%08x load=0x%08x entry=0x%08x\n",
-		    image_type_name(image.type), (unsigned int)image.size,
-		    (unsigned int)image.load, (unsigned int)image.entry);
+	uart_printf("image=%s size=0x%08x load=0x%08x entry=0x%08x\n", image_type_name(image.type),
+		    (unsigned int)image.size, (unsigned int)image.load, (unsigned int)image.entry);
 
 	move_payload((u8 *)(uintptr_t)image.load, image.data, image.size);
 	w = (volatile u32 *)(uintptr_t)image.load;

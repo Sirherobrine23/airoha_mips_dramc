@@ -12,16 +12,16 @@ void test_phy_reset(void);
 #undef DRAMC_WRITE_REG
 #undef DRAMC_WRITE_SET
 #undef DRAMC_WRITE_CLEAR
-#define DRAMC_READ_REG(off)	test_read(off)
-#define DRAMC_WRITE_REG(v, off)	test_write(off, v)
-#define DRAMC_WRITE_SET(v, off)	test_write(off, test_read(off) | (v))
+#define DRAMC_READ_REG(off)		test_read(off)
+#define DRAMC_WRITE_REG(v, off)		test_write(off, v)
+#define DRAMC_WRITE_SET(v, off)		test_write(off, test_read(off) | (v))
 #define DRAMC_WRITE_CLEAR(v, off)	test_write(off, test_read(off) & ~(v))
 
 /* The production inline reset functions were expanded before interception. */
 #undef DDR_PHY_RESET_NEW
-#define DDR_PHY_RESET_NEW()	test_phy_reset()
+#define DDR_PHY_RESET_NEW()		test_phy_reset()
 #define en751221_ddr_phy_reset()	test_phy_reset()
-#define en7528_ddr_phy_reset()	test_phy_reset()
+#define en7528_ddr_phy_reset()		test_phy_reset()
 
 /* Recreate the old test-table layouts when compiling the Git baseline. */
 #ifdef USE_BASELINE
@@ -31,21 +31,21 @@ typedef struct {
 	unsigned int start, range;
 	void *ext_arg;
 } test_case;
-#define TEST_CASE_TYPE test_case
-#define TEST_CALLBACK test_case
+#define TEST_CASE_TYPE	test_case
+#define TEST_CALLBACK	test_case
 #else
 struct ddr_test_case {
 	int (*fn)(unsigned int, unsigned int, void *);
 	unsigned int start, len;
 	void *arg;
 };
-#define TEST_CASE_TYPE struct ddr_test_case
-#define TEST_CALLBACK fn
+#define TEST_CASE_TYPE	struct ddr_test_case
+#define TEST_CALLBACK	fn
 #endif
 #else
 #include "calibration.h"
-#define TEST_CASE_TYPE struct dramc_test_case
-#define TEST_CALLBACK fn
+#define TEST_CASE_TYPE	struct dramc_test_case
+#define TEST_CALLBACK	fn
 #endif
 
 #endif

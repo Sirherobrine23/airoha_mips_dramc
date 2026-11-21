@@ -42,14 +42,16 @@ def build(directory, baseline, llvm):
              "-fno-stack-protector", "-fno-strict-aliasing", "-G0", "-Oz" if llvm else "-Os", "-std=gnu11",
              "-I" + str(directory), "-I" + str(ROOT / "includes")]
     if llvm:
-        flags += ["-Wno-parentheses", "-Wno-shift-op-parentheses"]
+        flags += ["-Wno-parentheses", "-Wno-shift-op-parentheses",
+                  "-ffunction-sections", "-fdata-sections"]
     objects = []
     for source in (*SOURCES, "trace.c", "start.S"):
         obj = directory / (Path(source).stem + ".o")
         run(cc + flags + ["-c", str(directory / source), "-o", str(obj)])
         objects.append(str(obj))
     executable = directory / "trace.elf"
-    run([ld, "-EL", "-m", "elf32ltsmip", "-static", "-e", "_start",
+    link_flags = ["--gc-sections"] if llvm else []
+    run([ld, "-EL", "-m", "elf32ltsmip", "-static", *link_flags, "-e", "_start",
          "-Ttext", "0x00401000", "-o", str(executable), *objects])
     return executable
 

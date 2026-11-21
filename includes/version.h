@@ -5,7 +5,7 @@
 #include <tmp_version.h>
 
 #ifndef PLAIN_VERSION
-#define PLAIN_VERSION "external"
+#define PLAIN_VERSION	"external"
 #endif
 
 #endif

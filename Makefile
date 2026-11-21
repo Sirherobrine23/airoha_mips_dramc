@@ -20,6 +20,8 @@ EXPERIMENTAL_SOCS ?= 0
 HOSTCC ?= cc
 HOSTCFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 CLANGD_SOC ?= en7528
+CLANG_FORMAT ?= clang-format
+AWK ?= awk
 PYTHON ?= python3
 HOST_TOOL := $(abspath $(O))/host/econet-image
 RAMBOOT_CROSS_COMPILE ?= mips64-linux-gnu-
@@ -76,6 +78,96 @@ $(RAMBOOT_OUTPUT): $(SRCTREE)/tools/en7580-ram-jump.S $(SRCTREE)/tools/en7580-ra
 clangd:
 	@python3 "$(SRCTREE)/tools/clangd.py" --soc "$(CLANGD_SOC)"
 
+# Format tracked C sources only; keep assembly, generated headers and binary
+# reference sources outside the formatter's scope.
+# Keep the alignment pass here so formatting needs no separate script.
+define format/macros
+function width(s,    i, c, column) {
+	column = 0;
+	for (i = 1; i <= length(s); i++) {
+		c = substr(s, i, 1);
+		column += c == "\t" ? 8 - column % 8 : 1;
+	}
+	return column;
+}
+function flush(    i, column, tabs, padding) {
+	column = (int(maximum / 8) + 1) * 8;
+	for (i = 1; i <= count; i++) {
+		if (i in heads) {
+			tabs = column / 8 - int(width(heads[i]) / 8);
+			padding = "";
+			while (tabs-- > 0)
+				padding = padding "\t";
+			print heads[i] padding bodies[i];
+		} else {
+			print lines[i];
+		}
+		delete lines[i]; delete heads[i]; delete bodies[i];
+	}
+	count = maximum = 0;
+}
+function comments(s,    i, c, pair, quote) {
+	for (i = 1; i <= length(s); i++) {
+		c = substr(s, i, 1); pair = substr(s, i, 2);
+		if (in_comment) {
+			if (pair == "*/") { in_comment = 0; i++; }
+		} else if (quote != "") {
+			if (c == "\\") i++;
+			else if (c == quote) quote = "";
+		} else if (pair == "//") {
+			break;
+		} else if (pair == "/*") {
+			in_comment = 1; i++;
+		} else if (c == "\"" || c == "\047") {
+			quote = c;
+		}
+	}
+}
+{
+	lines[++count] = $$0;
+	if ($$0 ~ /^[ \t]*(\/\/|\/\*)[ \t]*clang-format off([^A-Za-z_0-9]|$$)/)
+		disabled = 1;
+	matched = 0;
+	if (!in_comment && !continued && !disabled && $$0 !~ /\\\r?$$/ &&
+	    match($$0, /^[ \t]*#[ \t]*define[ \t]+[A-Za-z_][A-Za-z_0-9]*(\([^()\r\n]*\))?[ \t]+/)) {
+		head = substr($$0, 1, RLENGTH); body = substr($$0, RLENGTH + 1);
+		sub(/[ \t]+$$/, "", head);
+		if (body !~ /^(\/\*|\/\/|\r?$$)/) {
+			heads[count] = head; bodies[count] = body;
+			if (width(head) > maximum) maximum = width(head);
+			matched = 1;
+		}
+	}
+	if (!matched && ($$0 !~ /^[ \t\r]*$$/ || in_comment || continued || disabled))
+		flush();
+	comments($$0);
+	continued = $$0 ~ /\\\r?$$/;
+	if ($$0 ~ /^[ \t]*(\/\/|\/\*)[ \t]*clang-format on([^A-Za-z_0-9]|$$)/)
+		disabled = 0;
+}
+END { flush(); }
+endef
+
+.PHONY: format
+format: export FORMAT_MACROS = $(format/macros)
+format:
+	@set -eu; \
+		cd "$(SRCTREE)"; \
+		tmp=$$(mktemp -d); \
+		trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
+		git ls-files -z -- '*.c' '*.h' '*.cc' '*.cpp' '*.hpp' \
+			':!:includes/tmp_version.h' ':!:blobs/**' ':!:**/blobs/**' > "$$tmp/files"; \
+		xargs -0 -r sh -ec ' \
+			formatter=$$1; tmp=$$2; awk=$$3; shift 3; \
+			for file do \
+				"$$formatter" --style=file "$$file" > "$$tmp/clang"; \
+				"$$awk" "$$FORMAT_MACROS" "$$tmp/clang" > "$$tmp/result"; \
+				if ! cmp -s "$$file" "$$tmp/result"; then \
+					cat "$$tmp/result" > "$$file"; \
+				fi; \
+			done; \
+		' sh "$(CLANG_FORMAT)" "$$tmp" "$(AWK)" < "$$tmp/files"
+
 $(HOST_TOOL): $(SRCTREE)/tools/econet-image.c $(SRCTREE)/flash/ecnt.h
 	@mkdir -p "$(dir $@)"
 	@tmp="$@.$$$$.tmp"; \
@@ -131,6 +223,10 @@ help:
 		'Generate clangd editor commands (no firmware build):' \
 		'  make clangd' \
 		'  make clangd CLANGD_SOC=en751221' \
+		'' \
+		'Format tracked C sources and headers:' \
+		'  make format' \
+		'  make format CLANG_FORMAT=clang-format-20' \
 		'' \
 		'Standalone boot extension:' \
 		'  make en7528-bootext' \

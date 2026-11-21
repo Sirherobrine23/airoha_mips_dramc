@@ -15,7 +15,6 @@ int do_dqs_gw_calib_1(void);
 
 static void record(unsigned int kind, unsigned int reg, unsigned int value)
 {
-
 	hash = (hash ^ kind) * 16777619U;
 	hash = (hash ^ reg) * 16777619U;
 	hash = (hash ^ value) * 16777619U;
@@ -29,20 +28,29 @@ static int gating_pass(unsigned int coarse, unsigned int fine)
 	unsigned int last = DQS_GW_COARSE_END;
 
 	switch (profile) {
-	case 0: return 0;
-	case 1: return 1;
-	case 2: return coarse == first && fine >= 31 && fine <= 33;
-	case 3: return coarse == last && fine >= 62 && fine <= 66;
-	case 4: return (coarse == first || coarse == last) &&
-			fine >= 10 && fine < 20;
-	case 5: return coarse == first + 1 &&
-			((fine >= 3 && fine < 7) || (fine >= 40 && fine < 44));
-	case 6: return coarse == last && fine == 95;
-	case 7: return coarse == last && fine == 0;
-	case 8: return ((coarse * 97 + fine * 13) % 17) < 8;
-	case 9: return !phase && coarse == first + 2 &&
-			fine >= 20 && fine < 40;
-	default: return 0;
+	case 0:
+		return 0;
+	case 1:
+		return 1;
+	case 2:
+		return coarse == first && fine >= 31 && fine <= 33;
+	case 3:
+		return coarse == last && fine >= 62 && fine <= 66;
+	case 4:
+		return (coarse == first || coarse == last) && fine >= 10 && fine < 20;
+	case 5:
+		return coarse == first + 1 &&
+		       ((fine >= 3 && fine < 7) || (fine >= 40 && fine < 44));
+	case 6:
+		return coarse == last && fine == 95;
+	case 7:
+		return coarse == last && fine == 0;
+	case 8:
+		return ((coarse * 97 + fine * 13) % 17) < 8;
+	case 9:
+		return !phase && coarse == first + 2 && fine >= 20 && fine < 40;
+	default:
+		return 0;
 	}
 }
 
@@ -53,8 +61,8 @@ unsigned int test_read(unsigned int offset)
 	if (offset == DRAMC_TESTRPT)
 		value |= DRAMC_TEST_DM_CMP_CPT;
 	if (offset == DRAMC_DQSGNWCNT0) {
-		unsigned int coarse = ((regs[DRAMC_DQSCTL1 / 4] >> 24) & 7) * 4 +
-				      (regs[DRAMC_DQSGCTL / 4] & 3);
+		unsigned int coarse =
+			((regs[DRAMC_DQSCTL1 / 4] >> 24) & 7) * 4 + (regs[DRAMC_DQSGCTL / 4] & 3);
 		unsigned int fine = regs[DRAMC_R0DQSIEN / 4] & 0x7f;
 
 		value = gating_pass(coarse, fine) ? HW_DQS_GW_COUNTER : 0;
@@ -94,21 +102,34 @@ void prom_puts(const char *s)
 
 static int dma_result(unsigned int start, unsigned int len, void *arg)
 {
-	unsigned int tap = ((regs[DRAMC_DDR2CTL / 4] >> 4) & 7) |
-			   ((regs[DRAMC_PADCTL4 / 4] & 0x10) >> 1);
+	unsigned int tap =
+		((regs[DRAMC_DDR2CTL / 4] >> 4) & 7) | ((regs[DRAMC_PADCTL4 / 4] & 0x10) >> 1);
 	int pass = 0;
 
 	record(5, start, len);
 	record(6, tap, (unsigned int)(unsigned long)arg);
 	switch (profile) {
-	case 1: pass = 1; break;
-	case 2: pass = tap <= 1; break;
-	case 3: pass = tap >= 14; break;
-	case 4: pass = !(tap & 1); break;
-	case 5: pass = (tap >= 1 && tap <= 2) ||
-			(tap >= 10 && tap <= 11); break;
-	case 6: pass = tap == 7 || tap == 8; break;
-	case 7: pass = !phase && tap >= 8 && tap <= 9; break;
+	case 1:
+		pass = 1;
+		break;
+	case 2:
+		pass = tap <= 1;
+		break;
+	case 3:
+		pass = tap >= 14;
+		break;
+	case 4:
+		pass = !(tap & 1);
+		break;
+	case 5:
+		pass = (tap >= 1 && tap <= 2) || (tap >= 10 && tap <= 11);
+		break;
+	case 6:
+		pass = tap == 7 || tap == 8;
+		break;
+	case 7:
+		pass = !phase && tap >= 8 && tap <= 9;
+		break;
 	}
 	return pass ? 0 : -1;
 }
@@ -120,8 +141,7 @@ static void sys_write(const void *data, unsigned int len)
 	register const void *a1 __asm__("$5") = data;
 	register unsigned int a2 __asm__("$6") = len;
 
-	__asm__ volatile("syscall" : "+r"(v0) : "r"(a0), "r"(a1), "r"(a2)
-			 : "$7", "memory");
+	__asm__ volatile("syscall" : "+r"(v0) : "r"(a0), "r"(a1), "r"(a2) : "$7", "memory");
 }
 
 int guard_test(int argc, char **argv)
@@ -145,9 +165,18 @@ int guard_test(int argc, char **argv)
 	}
 
 	unsigned int out[] = {
-		result, first_result, opt_dle_idx, opt_dle_value,
-		opt_gw_coarse_value, opt_gw_fine_value,
-		operations, reads, writes, delays, hash, hash2,
+		result,
+		first_result,
+		opt_dle_idx,
+		opt_dle_value,
+		opt_gw_coarse_value,
+		opt_gw_fine_value,
+		operations,
+		reads,
+		writes,
+		delays,
+		hash,
+		hash2,
 	};
 
 	sys_write(out, sizeof(out));

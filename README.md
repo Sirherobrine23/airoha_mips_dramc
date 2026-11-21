@@ -32,6 +32,36 @@ variables before the next device is evaluated. This allows multiple SoCs and
 secondary contexts such as bootext DRAMC/chainloader to coexist in the same
 parallel make invocation without inheriting state from the previous device.
 
+## Code formatting
+
+The root `.clang-format` defines a Linux-style layout with eight-column tabs,
+a 100-column limit and function braces on a separate line. Include order,
+comment text and comment line breaks are preserved; comment indentation is
+adjusted to match the surrounding code. `make format` runs clang-format, then aligns
+single-line `#define` values with tabs at a common eight-column stop, including
+across blank lines. A declaration, comment or other directive ends the group.
+Continued macros and definitions containing only comments retain their layout.
+`SkipMacroDefinitionBody: true` lets clang-format preserve this alignment.
+The editor must also display tabs as eight columns for the values to line up.
+The repository's EditorConfig, VS Code and Zed settings use that width for C/C++
+sources.
+
+Install `clang-format` 20 or newer, then run:
+
+```sh
+make format
+```
+
+The formatting steps live in the `Makefile`; no separate Python script is needed.
+`format` updates tracked `.c`, `.h`, `.cc`, `.cpp` and `.hpp` files in place.
+Assembly, generated `includes/tmp_version.h` and sources under `blobs/` are
+excluded.
+
+To select a versioned executable, use `make format CLANG_FORMAT=clang-format-20`.
+Editors supporting clang-format
+automatically discover the root configuration and preserve macro alignment;
+use `make format` to align newly added macros.
+
 ## Documentation
 
 Project documentation uses Markdown (`.md`). New documentation must be written in Markdown.

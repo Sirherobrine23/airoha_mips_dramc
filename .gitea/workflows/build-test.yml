@@ -2,7 +2,7 @@ name: build-test
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main"]
   pull_request:
     branches: ["main"]
 
@@ -27,6 +27,26 @@ jobs:
           name: host
           path: out/host/
           if-no-files-found: ignore
+
+  format:
+    name: Check format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install clang format
+        shell: sudo bash {0}
+        run: apt update && apt install -y clang-format
+
+      - name: Format code and check change
+        run: |
+          make format
+          if [[ $(git status --porcelain | wc -l) -gt 0 ]]
+          then
+            git diff
+            echo Run make format
+            exit 1
+          fi
 
   # Per-SoC firmware build. Endianness/toolchain per SoC come straight from
   # soc/*.mk: en751221 and en751627 are big-endian (mips-linux-gnu-), en7528

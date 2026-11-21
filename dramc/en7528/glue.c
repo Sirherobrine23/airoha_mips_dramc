@@ -3,14 +3,14 @@
 
 typedef unsigned char u8;
 typedef unsigned int u32;
-#define REG32(addr) (*(volatile u32 *)(addr))
+#define REG32(addr)		(*(volatile u32 *)(addr))
 
-#define ECONET_SYS_GLOBAL_PARM  0xbfb00284u
-#define ECONET_TIMER_BASE       0xbfbf0100u
-#define ECONET_TIMER_CTL        (ECONET_TIMER_BASE + 0x00)
-#define ECONET_TIMER1_LDV       (ECONET_TIMER_BASE + 0x0c)
-#define ECONET_TIMER1_VLR       (ECONET_TIMER_BASE + 0x10)
-#define ECONET_UART_BASE        0xbfbf0000u
+#define ECONET_SYS_GLOBAL_PARM	0xbfb00284u
+#define ECONET_TIMER_BASE	0xbfbf0100u
+#define ECONET_TIMER_CTL	(ECONET_TIMER_BASE + 0x00)
+#define ECONET_TIMER1_LDV	(ECONET_TIMER_BASE + 0x0c)
+#define ECONET_TIMER1_VLR	(ECONET_TIMER_BASE + 0x10)
+#define ECONET_UART_BASE	0xbfbf0000u
 
 static unsigned int get_hclk_mhz(void)
 {

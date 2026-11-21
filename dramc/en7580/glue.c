@@ -8,7 +8,7 @@
  */
 
 #include "en7580_ddr.h"
-#define REG32(addr)	(*(volatile u32 *)(addr))
+#define REG32(addr)		(*(volatile u32 *)(addr))
 
 #define EN7580_SYS_GLOBAL_PARM	0xbfb00284u
 #define EN7580_TIMER_BASE	0xbfbf0100u

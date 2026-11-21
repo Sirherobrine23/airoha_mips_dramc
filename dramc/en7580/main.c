@@ -6,7 +6,8 @@ void start_spram(int calibrate)
 #ifdef EN7580_BOOTEXT
 	prom_puts("C-DRAMC start\n");
 #endif
-	if (calibrate == 1) main();
+	if (calibrate == 1)
+		main();
 	spram_postprocess();
 #ifdef EN7580_BOOTEXT
 	/* The recovery probe leaves the flash untouched after DDR training. */
@@ -14,7 +15,8 @@ void start_spram(int calibrate)
 		prom_puts("C-DRAMC done\n");
 	else
 		prom_puts("C-DRAMC size fail\n");
-	for (;;) ;
+	for (;;)
+		;
 #else
 	((void (*)(void))reg_read(0xbfb00280))();
 #endif

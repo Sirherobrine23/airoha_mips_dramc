@@ -62,22 +62,11 @@ jobs:
       matrix:
         include:
           - soc: en751221
-            toolchain: gnu
-            cross: mips-linux-gnu-
-          - soc: en751221
             toolchain: llvm
-          - soc: en751627
-            toolchain: gnu
-            cross: mips-linux-gnu-
           - soc: en751627
             toolchain: llvm
           - soc: en7528
-            toolchain: gnu
-            cross: mipsel-linux-gnu-
-          - soc: en7528
             toolchain: llvm
-          # en7580 DRAMC reconstruction is explicitly WIP upstream; keep it
-          # opt-in (EXPERIMENTAL_SOCS=1) and non-blocking.
           - soc: en7580
             toolchain: gnu
             cross: mipsel-linux-gnu-
@@ -85,19 +74,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Package names are for Ubuntu's cross-toolchain packages; adjust if
-      # the runner image differs.
-      - name: Install GNU MIPS cross toolchain
-        if: matrix.toolchain == 'gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-mips-linux-gnu binutils-mips-linux-gnu \
-            gcc-mipsel-linux-gnu binutils-mipsel-linux-gnu
-
-      # en7580's DRAMC stage builds with a separate mips64 GNU toolchain
-      # (images/en7580.mk: SOC_GNU_CROSS_COMPILE=mips64-linux-gnu-) regardless of
-      # the mipsel- CROSS_COMPILE used for the rest of that SoC's build.
       - name: Install mips64 GNU toolchain (en7580 DRAMC payload)
         if: matrix.soc == 'en7580' && matrix.toolchain == 'gnu'
         run: |

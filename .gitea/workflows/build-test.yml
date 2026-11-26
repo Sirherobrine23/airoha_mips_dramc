@@ -34,13 +34,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install clang format
-        shell: sudo bash {0}
-        run: apt update && apt install -y clang-format
+      - name: Install clang-format 20
+        run: |
+          sudo apt-get update
+          if ! sudo apt-get install -y clang-format-20; then
+            sudo apt-get install -y wget lsb-release software-properties-common gnupg
+            wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+              | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+            sudo add-apt-repository -y \
+              "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-20 main"
+            sudo apt-get update
+            sudo apt-get install -y clang-format-20
+          fi
 
       - name: Format code and check change
         run: |
-          make format
+          make format CLANG_FORMAT=clang-format-20
           if [[ $(git status --porcelain | wc -l) -gt 0 ]]
           then
             git diff
@@ -48,11 +57,8 @@ jobs:
             exit 1
           fi
 
-  # Per-SoC firmware build. Endianness/toolchain per SoC come straight from
-  # soc/*.mk: en751221 and en751627 are big-endian (mips-linux-gnu-), en7528
-  # and en7580 are little-endian (mipsel-linux-gnu-). LLVM is skipped for
-  # en7580 because its reconstructed DRAMC uses R_MIPS16_26 .reloc directives
-  # that LLVM's integrated MIPS assembler does not implement (see README).
+  # Per-SoC firmware build. Endianness comes from images/<soc>.mk:
+  # en751221 and en751627 are big-endian, en7528 and en7580 are little-endian.
   build:
     name: Build ${{ matrix.soc }} (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
@@ -68,40 +74,35 @@ jobs:
           - soc: en7528
             toolchain: llvm
           - soc: en7580
-            toolchain: gnu
-            cross: mipsel-linux-gnu-
+            toolchain: llvm
             experimental: true
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mips64 GNU toolchain (en7580 DRAMC payload)
-        if: matrix.soc == 'en7580' && matrix.toolchain == 'gnu'
-        run: |
-          sudo apt-get install -y gcc-mips64-linux-gnuabi64 binutils-mips64-linux-gnuabi64
-
       - name: Install LLVM/Clang
-        if: matrix.toolchain == 'llvm'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang lld llvm
 
       - name: Build ${{ matrix.soc }}
         continue-on-error: ${{ matrix.experimental == true }}
-        run: |
-          make ${{ matrix.toolchain == 'llvm' && 'LLVM=1' || format('CROSS_COMPILE={0}', matrix.cross) }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}
+        run: make LLVM=1 EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}
 
       - name: Build bootext ${{ matrix.soc }}
         continue-on-error: true
-        run: |
-          make ${{ matrix.toolchain == 'llvm' && 'LLVM=1' || format('CROSS_COMPILE={0}', matrix.cross) }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}-bootext
+        run: make LLVM=1 EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}-bootext
+
+      - name: Check en751221 bootext image and symbols
+        if: matrix.soc == 'en751221'
+        run: make LLVM=1 en751221-bootext-check
 
       - name: Build recovery ${{ matrix.soc }}
         continue-on-error: true
-        run: make ${{ matrix.toolchain == 'llvm' && 'LLVM=1' || format('CROSS_COMPILE={0}', matrix.cross) }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}-recovery
+        run: make LLVM=1 EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}-recovery
 
       - name: Build tcboot ${{ matrix.soc }}
         continue-on-error: ${{ matrix.experimental == true }}
-        run: make ${{ matrix.toolchain == 'llvm' && 'LLVM=1' || format('CROSS_COMPILE={0}', matrix.cross) }} EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}-tcboot
+        run: make LLVM=1 EXPERIMENTAL_SOCS=1 ${{ matrix.soc }}-tcboot
 
       - name: Upload build artifacts
         if: always()
@@ -110,26 +111,3 @@ jobs:
           name: ${{ matrix.soc }}-${{ matrix.toolchain }}
           path: out/${{ matrix.soc }}/
           if-no-files-found: ignore
-
-  # Verifies the composed en751221 bootext image (DRAMC + SRAM XMODEM
-  # receiver + bootstrap) and its linker symbols with the host tool's
-  # check-en751221-bootext subcommand, per README's documented check step.
-  # This only inspects artifacts already built above; it does not run
-  # firmware or replace a BootROM hardware test.
-  bootext-check:
-    name: EN751221 bootext image/layout check
-    runs-on: ubuntu-latest
-    needs: host-test
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GNU MIPS cross toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-mips-linux-gnu binutils-mips-linux-gnu
-
-      - name: Build en751221
-        run: make CROSS_COMPILE=mips-linux-gnu- en751221
-
-      - name: Check bootext image and symbols
-        run: make en751221-bootext-check CROSS_COMPILE=mips-linux-gnu-

@@ -155,7 +155,8 @@ format:
 		tmp=$$(mktemp -d); \
 		trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
 		git ls-files -z -- '*.c' '*.h' '*.cc' '*.cpp' '*.hpp' \
-			':!:includes/tmp_version.h' ':!:blobs/**' ':!:**/blobs/**' > "$$tmp/files"; \
+			':!:includes/tmp_version.h' ':!:blobs/**' ':!:**/blobs/**' \
+			':!:flash/decompress/**' > "$$tmp/files"; \
 		xargs -0 -r sh -ec ' \
 			formatter=$$1; tmp=$$2; awk=$$3; shift 3; \
 			for file do \

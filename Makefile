@@ -42,7 +42,7 @@ include $(SRCTREE)/images/Makefile
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean test test-inspect test-compression test-mips-compression help hosttools tcboot bootext recovery en7580-ram-jump en7580-sram-copy
+.PHONY: all clean test test-inspect test-compression test-mips-compression test-ubi help hosttools tcboot bootext recovery en7580-ram-jump en7580-sram-copy
 
 all: $(BUILD_DEVICES) bootext recovery tcboot
 
@@ -195,6 +195,9 @@ test-en7512:
 
 test-mips-compression:
 	@python3 "$(SRCTREE)/tests/mips-compression.py"
+
+test-ubi: $(HOST_TOOL)
+	@HOSTCC="$(HOSTCC)" $(PYTHON) -P "$(SRCTREE)/tests/ubi.py" "$(HOST_TOOL)"
 
 tcboot: $(addsuffix -tcboot,$(TARGET_TCBOOT))
 bootext: $(addsuffix -bootext,$(TARGET_BOOTEXT))

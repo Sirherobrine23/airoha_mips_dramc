@@ -12,4 +12,11 @@
  */
 int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len, uint8_t *dst,
 		      size_t dst_len, void *work, size_t work_len);
+
+/* Variant for containers (such as legacy uImage) whose uncompressed size is not
+ * known in advance. Writes up to dst_cap bytes and stores the actual decoded size
+ * in *out_len.
+ */
+int econet_decompress_bounded(uint32_t algorithm, const uint8_t *src, size_t src_len, uint8_t *dst,
+			      size_t dst_cap, size_t *out_len, void *work, size_t work_len);
 #endif

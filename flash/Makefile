@@ -30,24 +30,35 @@ define flash/compile
 	@printf '  CC         %s\n' uart.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
+		-ffunction-sections -fdata-sections \
 		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/uart.c" -o "$(CHAIN_BUILD)/uart.o"
 	@printf '  CC         %s\n' loader.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
-		-DPAYLOAD_OFFSET=$(PAYLOAD_OFFSET) \
+		-ffunction-sections -fdata-sections \
+		-DPAYLOAD_OFFSET=$(PAYLOAD_OFFSET) -DUBI_OFFSET=$(UBI_OFFSET) \
+		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) \
 		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/loader.c" -o "$(CHAIN_BUILD)/loader.o"
+	@printf '  CC         %s\n' ubi.o
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
+		-ffunction-sections -fdata-sections \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
+		-c "$(SRCTREE)/flash/ubi.c" -o "$(CHAIN_BUILD)/ubi.o"
 	@printf '  CC         %s\n' early_sfc.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
+		-ffunction-sections -fdata-sections \
 		$(FLASH_STANDALONE_CPPFLAGS) $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/early_sfc.c" -o "$(CHAIN_BUILD)/early_sfc.o"
 	$(call flash/compile/decompress,$(CHAIN_BUILD))
 	@printf '  LD         %s\n' "$(CHAIN_BUILD)/chainload.elf"
 	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(SRCTREE)/flash/loader.lds" \
 		--gc-sections -Map "$(CHAIN_BUILD)/chainload.map" -o "$(CHAIN_BUILD)/chainload.elf" \
-		"$(CHAIN_BUILD)/loader-start.o" "$(CHAIN_BUILD)/uart.o" "$(CHAIN_BUILD)/loader.o" "$(CHAIN_BUILD)/early_sfc.o" \
+		"$(CHAIN_BUILD)/loader-start.o" "$(CHAIN_BUILD)/uart.o" "$(CHAIN_BUILD)/loader.o" \
+		"$(CHAIN_BUILD)/ubi.o" "$(CHAIN_BUILD)/early_sfc.o" \
 		$(addprefix $(CHAIN_BUILD)/,$(notdir $(FLASH_DECOMP_SOURCES:.c=.o)))
 	$(TOOL_OBJCOPY) -O binary "$(CHAIN_BUILD)/chainload.elf" "$(CHAIN_OUTPUT).tmp"
 	@mv -f "$(CHAIN_OUTPUT).tmp" "$(CHAIN_OUTPUT)"
@@ -108,22 +119,33 @@ define tcboot/compile
 	@printf '  CC         %s\n' uart.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
+		-ffunction-sections -fdata-sections \
 		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/uart.c" -o "$(TCBOOT_BUILD)/uart.o"
 	@printf '  CC         %s\n' loader.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
-		-DPAYLOAD_OFFSET=$(PAYLOAD_OFFSET) $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
+		-ffunction-sections -fdata-sections \
+		-DPAYLOAD_OFFSET=$(PAYLOAD_OFFSET) -DUBI_OFFSET=$(UBI_OFFSET) \
+		-DUBOOT_LOAD_ADDR=$(UBOOT_LOAD_ADDR) $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/loader.c" -o "$(TCBOOT_BUILD)/loader.o"
+	@printf '  CC         %s\n' ubi.o
+	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
+		-ffunction-sections -fdata-sections \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
+		-c "$(SRCTREE)/flash/ubi.c" -o "$(TCBOOT_BUILD)/ubi.o"
 	@printf '  CC         %s\n' flash.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
+		-ffunction-sections -fdata-sections \
 		$(FLASH_STANDALONE_CPPFLAGS) $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/early_sfc.c" -o "$(TCBOOT_BUILD)/flash.o"
 	$(call flash/compile/decompress,$(TCBOOT_BUILD))
 	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(SRCTREE)/flash/loader.lds" \
 		--gc-sections -Map "$(TCBOOT_BUILD)/loader.map" -o "$(TCBOOT_BUILD)/loader.elf" \
-		"$(TCBOOT_BUILD)/loader-start.o" "$(TCBOOT_BUILD)/uart.o" "$(TCBOOT_BUILD)/loader.o" "$(TCBOOT_BUILD)/flash.o" \
+		"$(TCBOOT_BUILD)/loader-start.o" "$(TCBOOT_BUILD)/uart.o" "$(TCBOOT_BUILD)/loader.o" \
+		"$(TCBOOT_BUILD)/ubi.o" "$(TCBOOT_BUILD)/flash.o" \
 		$(addprefix $(TCBOOT_BUILD)/,$(notdir $(FLASH_DECOMP_SOURCES:.c=.o)))
 	$(TOOL_OBJCOPY) -O binary "$(TCBOOT_BUILD)/loader.elf" "$(TCBOOT_BUILD)/loader.bin"
 	@printf '  CC         %s\n' start.o

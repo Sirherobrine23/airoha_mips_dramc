@@ -54,13 +54,14 @@ static void lzma_free(void *opaque, void *address)
 	(void)address;
 }
 
-int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len, uint8_t *dst,
-		      size_t dst_len, void *work, size_t work_len)
+static int decompress_common(uint32_t algorithm, const uint8_t *src, size_t src_len, uint8_t *dst,
+			     size_t dst_cap, int exact, size_t *out_len, void *work,
+			     size_t work_len)
 {
 	struct arena arena = { work, work_len, 0 };
 
-	if (!src || !dst || !work || !src_len || !dst_len || ((uintptr_t)work & 7) ||
-	    src_len > UINT32_MAX || dst_len > UINT32_MAX)
+	if (!src || !dst || !work || !src_len || !dst_cap || ((uintptr_t)work & 7) ||
+	    src_len > UINT32_MAX || dst_cap > UINT32_MAX)
 		return -1;
 	if (algorithm == ECONET_COMP_GZIP) {
 		z_stream stream = { 0 };
@@ -72,20 +73,24 @@ int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len, ui
 		stream.next_in = (Bytef *)(uintptr_t)src;
 		stream.avail_in = (uInt)src_len;
 		stream.next_out = dst;
-		stream.avail_out = (uInt)dst_len;
+		stream.avail_out = (uInt)dst_cap;
 		/* Gzip only: verify its header, trailer CRC32 and ISIZE. */
 		if (inflateInit2(&stream, 15 + 16) != Z_OK)
 			return -1;
 		ret = inflate(&stream, Z_FINISH);
 		valid = ret == Z_STREAM_END && stream.total_in == src_len &&
-			stream.total_out == dst_len;
+			(exact ? stream.total_out == dst_cap
+			       : (stream.total_out > 0 && stream.total_out <= dst_cap));
+		if (valid && out_len)
+			*out_len = stream.total_out;
 		inflateEnd(&stream);
 		return valid ? 0 : -1;
 	}
 	if (algorithm == ECONET_COMP_LZMA) {
 		struct lzma_allocator allocator = { { lzma_alloc, lzma_free }, &arena };
+		ELzmaFinishMode finish_mode = LZMA_FINISH_END;
 		ELzmaStatus status;
-		SizeT in_size, out_size = dst_len;
+		SizeT in_size, out_size = dst_cap;
 		uint32_t declared;
 		int declared_unknown;
 		uint32_t dict;
@@ -110,18 +115,55 @@ int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len, ui
 		declared_unknown = src[5] == 0xff && src[6] == 0xff && src[7] == 0xff &&
 				   src[8] == 0xff && src[9] == 0xff && src[10] == 0xff &&
 				   src[11] == 0xff && src[12] == 0xff;
-		/* dst_len is bounded to u32, so known LZMA sizes need no u64 math. */
-		if (!declared_unknown &&
-		    (src[9] || src[10] || src[11] || src[12] || declared != dst_len))
-			return -1;
+		/* dst_cap is bounded to u32, so known LZMA sizes need no u64 math. */
+		if (!declared_unknown) {
+			if (src[9] || src[10] || src[11] || src[12])
+				return -1;
+			if (exact) {
+				if (declared != dst_cap)
+					return -1;
+			} else {
+				if (!declared || declared > dst_cap)
+					return -1;
+				out_size = declared;
+			}
+		} else if (!exact) {
+			finish_mode = LZMA_FINISH_ANY;
+		}
 		in_size = src_len - 13;
-		ret = LzmaDecode(dst, &out_size, src + 13, &in_size, src, 5, LZMA_FINISH_END,
-				 &status, &allocator.ops);
-		if (ret != SZ_OK || in_size != src_len - 13 || out_size != dst_len)
+		ret = LzmaDecode(dst, &out_size, src + 13, &in_size, src, 5, finish_mode, &status,
+				 &allocator.ops);
+		if (ret != SZ_OK || in_size != src_len - 13)
 			return -1;
+		if (exact) {
+			if (out_size != dst_cap)
+				return -1;
+		} else {
+			if (!out_size || out_size > dst_cap)
+				return -1;
+			if (!declared_unknown && out_size != declared)
+				return -1;
+		}
 		if (status == LZMA_STATUS_FINISHED_WITH_MARK ||
-		    (!declared_unknown && status == LZMA_STATUS_MAYBE_FINISHED_WITHOUT_MARK))
+		    (!declared_unknown && status == LZMA_STATUS_MAYBE_FINISHED_WITHOUT_MARK)) {
+			if (out_len)
+				*out_len = out_size;
 			return 0;
+		}
 	}
 	return -1;
+}
+
+int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len, uint8_t *dst,
+		      size_t dst_len, void *work, size_t work_len)
+{
+	return decompress_common(algorithm, src, src_len, dst, dst_len, 1, NULL, work, work_len);
+}
+
+int econet_decompress_bounded(uint32_t algorithm, const uint8_t *src, size_t src_len, uint8_t *dst,
+			      size_t dst_cap, size_t *out_len, void *work, size_t work_len)
+{
+	if (!out_len)
+		return -1;
+	return decompress_common(algorithm, src, src_len, dst, dst_cap, 0, out_len, work, work_len);
 }

@@ -29,9 +29,17 @@ void uart_put_hex32(uint32_t value);
 #define PAYLOAD_OFFSET	0x20000U
 #endif
 
+#ifndef UBI_OFFSET
+#define UBI_OFFSET	PAYLOAD_OFFSET
+#endif
+
 #define IMAGE_LIMIT	0x100000U
 #define PAYLOAD_RAM_MIN	0x81000000U
 #define PAYLOAD_RAM_MAX	0x82000000U
+
+#ifndef UBOOT_LOAD_ADDR
+#define UBOOT_LOAD_ADDR	PAYLOAD_RAM_MIN
+#endif
 
 #include "ecnt.h"
 

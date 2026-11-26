@@ -5,9 +5,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define EIO 5
-#define EINVAL 22
-#define EOPNOTSUPP 95
+#define EIO		5
+#define EINVAL		22
+#define EOPNOTSUPP	95
 
 int econet_sfc_init(void);
 int econet_sfc_read(uint32_t offset, void *dst, size_t len);

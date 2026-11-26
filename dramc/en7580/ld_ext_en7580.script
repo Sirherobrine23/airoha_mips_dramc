@@ -1,0 +1,54 @@
+/*OUTPUT_FORMAT(elf32-tradbigmips)
+OUTPUT_ARCH(mips)*/
+ENTRY(start)
+SECTIONS
+{
+  /* Read-only sections, merged into text segment: */
+  . = 0x9f000000;
+  .init          : { *(.init)		} =0
+  .text      :
+  {
+    _ftext = . ;
+    *(.text)
+    /* .gnu.warning sections are handled specially by elf32.em.  */
+    *(.gnu.warning)
+  } =0
+  
+  _etext = .;
+
+  
+
+ 
+  .data    :
+  {
+    _fdata = . ;
+    *(.rodata)
+    *(.rodata1)
+    *(.rodata.str1.4)
+    *(.data)
+
+	/* add 4bytes for CRC32 */
+  	. += 4;
+  	/* align to 1024 */
+	. = ALIGN(1024);
+   
+    CONSTRUCTORS
+     _edata  =  .;
+  PROVIDE (edata = .);
+  } = 0
+  
+  __bss_start = .;
+  _fbss = .;
+  .sbss      : { *(.sbss) *(.scommon) }
+  .bss       :
+  {
+   *(.dynbss)
+   *(.bss)
+   *(COMMON)
+   .  = ALIGN(4);
+  _end = . ;
+  PROVIDE (end = .);
+  }=0
+
+  
+}

@@ -17,55 +17,55 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 
 #ifndef UBOOT_LOAD_ADDR
-#define UBOOT_LOAD_ADDR						0x81000000u
+#define UBOOT_LOAD_ADDR	0x81000000u
 #endif
 
 /* Cached KSEG0: uncached 8-bit stores corrupt the word on this chip. */
-#define UBOOT_LOAD_CACHED				(UBOOT_LOAD_ADDR)
-#define UBOOT_ENTRY_CACHED				(UBOOT_LOAD_ADDR)
-#define UBOOT_MAX_SIZE					0x00400000u
-#define UBOOT_DRAM_LIMIT				0x82000000u
+#define UBOOT_LOAD_CACHED	(UBOOT_LOAD_ADDR)
+#define UBOOT_ENTRY_CACHED	(UBOOT_LOAD_ADDR)
+#define UBOOT_MAX_SIZE		0x00400000u
+#define UBOOT_DRAM_LIMIT	0x82000000u
 
 /* Interactive bootext/recovery menu. */
 #define CHAINLOADER_MENU_TIMEOUT_SEC	10u
 #define CHAINLOADER_FLASH_UNSUPPORTED	(-38)
-#define TCBOOT_FLASH_SIZE				0x00100000u
-#define TCBOOT_FLASH_SIZE_MIN			0x00020000u
+#define TCBOOT_FLASH_SIZE		0x00100000u
+#define TCBOOT_FLASH_SIZE_MIN		0x00020000u
 
-#define CR_TIMER_CTL					0xbfbf0100u
+#define CR_TIMER_CTL			0xbfbf0100u
 
 /* Assumed console baud rate for calibrating the timebase. */
-#define CONSOLE_CPS						11520u /* 115200 8N1 = 11520 chars/s */
-#define DEFAULT_TICKS_PER_MS			250000u
+#define CONSOLE_CPS		11520u /* 115200 8N1 = 11520 chars/s */
+#define DEFAULT_TICKS_PER_MS	250000u
 
 /* Protocol tuning. */
-#define HANDSHAKE_TRIES					200
-#define HANDSHAKE_MS					3000
-#define BYTE_MS							1000
-#define NEXT_HDR_MS						5000
-#define CSUM_PROBE_MS					300
-#define PURGE_MS						300
-#define MAX_ERRORS						16
+#define HANDSHAKE_TRIES	200
+#define HANDSHAKE_MS	3000
+#define BYTE_MS		1000
+#define NEXT_HDR_MS	5000
+#define CSUM_PROBE_MS	300
+#define PURGE_MS	300
+#define MAX_ERRORS	16
 
-#define CHK_CHUNK						128u
+#define CHK_CHUNK	128u
 
 /* Supported U-Boot input/container formats. */
-#define IH_MAGIC						0x27051956u
-#define IH_HEADER_SIZE					64u
-#define IH_ARCH_MIPS					5u
-#define IH_TYPE_FIRMWARE				5u
-#define IH_COMP_NONE					0u
+#define IH_MAGIC		0x27051956u
+#define IH_HEADER_SIZE		64u
+#define IH_ARCH_MIPS		5u
+#define IH_TYPE_FIRMWARE	5u
+#define IH_COMP_NONE		0u
 
-#define FDT_MAGIC						0xd00dfeedu
-#define FDT_BEGIN_NODE					0x00000001u
-#define FDT_END_NODE					0x00000002u
-#define FDT_PROP						0x00000003u
-#define FDT_NOP							0x00000004u
-#define FDT_END							0x00000009u
+#define FDT_MAGIC		0xd00dfeedu
+#define FDT_BEGIN_NODE		0x00000001u
+#define FDT_END_NODE		0x00000002u
+#define FDT_PROP		0x00000003u
+#define FDT_NOP			0x00000004u
+#define FDT_END			0x00000009u
 
-#define ECONET_BOOT_MAGIC				0x45434e54u /* "ECNT" */
-#define ECONET_BOOT_VERSION				1u
-#define ECONET_BOOT_HEADER_SIZE			32u
+#define ECONET_BOOT_MAGIC	0x45434e54u /* "ECNT" */
+#define ECONET_BOOT_VERSION	1u
+#define ECONET_BOOT_HEADER_SIZE	32u
 
 /*
  * On-wire ECNT header.  Every field is stored big-endian regardless of SoC
@@ -104,7 +104,6 @@ static inline u32 cp0_count(void)
 	return v;
 }
 
-
 void chainloader_uart_tx_reset(void);
 u32 chainloader_uart_tx_count(void);
 
@@ -126,5 +125,8 @@ enum image_type {
 };
 
 int chainloader_flash_tcboot(const void *image, u32 len);
+#ifdef CHAINLOADER_EN751627
+int en751627_prepare_cpus(void);
+#endif
 
 #endif

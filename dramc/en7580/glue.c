@@ -7,9 +7,8 @@
  * path are left to U-Boot after DRAM is usable.
  */
 
-typedef unsigned char u8;
-typedef unsigned int u32;
-#define REG32(addr)	(*(volatile u32 *)(addr))
+#include "en7580_ddr.h"
+#define REG32(addr)		(*(volatile u32 *)(addr))
 
 #define EN7580_SYS_GLOBAL_PARM	0xbfb00284u
 #define EN7580_TIMER_BASE	0xbfbf0100u
@@ -20,7 +19,7 @@ typedef unsigned int u32;
 
 extern void init_system(int bootrom_ext);
 
-void *memset(void *dst, int c, unsigned long len)
+void *memset(void *dst, int c, ulong len)
 {
 	u8 *p = dst;
 
@@ -55,7 +54,7 @@ void prom_puts(const char *str)
 	}
 }
 
-void prom_print_hex(unsigned long val, int len)
+void prom_print_hex(ulong val, int len)
 {
 	int i;
 
@@ -66,7 +65,7 @@ void prom_print_hex(unsigned long val, int len)
 	}
 }
 
-void prom_print_dec(unsigned long val)
+void prom_print_dec(ulong val)
 {
 	char buf[11];
 	int i = sizeof(buf);
@@ -120,7 +119,11 @@ int spram_preprocess(void)
 	 * The XGZ030 system.o selects FPGA/ASIC clocks, SPI-controller ECC and
 	 * DDR3/DDR4 package information from straps/eFuse before calibration.
 	 */
+#ifdef EN7580_BOOTEXT
+	init_system(1);
+#else
 	init_system(0);
+#endif
 	time_polling_init();
 	return 0;
 }

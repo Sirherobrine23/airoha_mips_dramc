@@ -38,18 +38,17 @@ static inline void print_probe_error(unsigned int address, unsigned int value)
 int check_column_bank(void)
 {
 	/* Preserve the binary's separate column and bank probes. Column reads
-     * compile as ordinary loads; the bank probe requires volatile ordering.
-     * Empty constraints retain observed lifetimes and branch layout without
-     * supplying opcodes. No MT6739 geometry or EMI settings are imported.
-     */
+	 * compile as ordinary loads; the bank probe requires volatile ordering.
+	 * Empty constraints retain observed lifetimes and branch layout without
+	 * supplying opcodes. No MT6739 geometry or EMI settings are imported.
+	 */
 	int col_bits, bank_bits;
 	register int next_col __asm__("$22");
 	unsigned int value;
 	if (dram_type == DDR3)
 		goto already_configured;
 	for (col_bits = 8; col_bits != max_col_bits; col_bits = next_col) {
-		DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300) |
-					((col_bits - 7) << 8),
+		DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300) | ((col_bits - 7) << 8),
 				DRAMC_CONF1);
 		delay_a_while(2);
 		{
@@ -79,7 +78,7 @@ int check_column_bank(void)
 			print_probe_error(DRAM_BASE_ADDR, value);
 			return -1;
 		}
-next_column:
+	next_column:
 		__asm__ volatile("" : : "r"(10));
 	}
 	goto maximum_column;
@@ -99,14 +98,11 @@ check_bank:
 		readback = *(volatile unsigned int *)address;
 		value = *(volatile unsigned int *)DRAM_BASE_ADDR;
 		if (readback != 0x87654321) {
-			register unsigned int base __asm__("$4") =
-				DRAM_BASE_ADDR;
+			register unsigned int base __asm__("$4") = DRAM_BASE_ADDR;
 			__asm__ volatile("" : "+r"(base));
-			register unsigned int retry_addr __asm__("$2") =
-				base + 0x2000;
+			register unsigned int retry_addr __asm__("$2") = base + 0x2000;
 			__asm__ volatile("" : "+r"(retry_addr));
-			register unsigned int expected __asm__("$5") =
-				0x87654321;
+			register unsigned int expected __asm__("$5") = 0x87654321;
 			__asm__ volatile("" : "+r"(expected));
 			do {
 				ADDR_WRITE_REG(0x87654321, retry_addr);
@@ -126,27 +122,25 @@ check_bank:
 		return -1;
 	}
 	{
-		register unsigned int old __asm__("$3") =
-			DRAMC_READ_REG(DRAMC_GDDR3CTL1);
+		register unsigned int old __asm__("$3") = DRAMC_READ_REG(DRAMC_GDDR3CTL1);
 		__asm__ volatile("" : "+r"(old));
-		register unsigned int bits __asm__("$2") = (bank_bits - 2)
-							   << 24;
+		register unsigned int bits __asm__("$2") = (bank_bits - 2) << 24;
 		DRAMC_WRITE_REG(bits | (old & ~(1 << 24)), DRAMC_GDDR3CTL1);
 	}
 	delay_a_while(2);
 done:
 	__asm__ volatile("" ::: "memory");
 	return 0;
-already_configured: {
-	/* Keep the observed explicit zero in the unframed return. */
-	__asm__ volatile("" ::: "$2");
-	register int result __asm__("$2") = 0;
-	__asm__ volatile("" : "+r"(result));
-	return result;
-}
+already_configured:
+	{
+		/* Keep the observed explicit zero in the unframed return. */
+		__asm__ volatile("" ::: "$2");
+		register int result __asm__("$2") = 0;
+		__asm__ volatile("" : "+r"(result));
+		return result;
+	}
 maximum_column:
-	DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300) |
-				((col_bits - 8) << 8),
+	DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300) | ((col_bits - 8) << 8),
 			DRAMC_CONF1);
 	delay_a_while(2);
 	if (dram_type == DDR2)
@@ -155,8 +149,7 @@ maximum_column:
 column_found:
 	__asm__ volatile("" : "+r"(col_bits));
 	{
-		register unsigned int old __asm__("$3") =
-			DRAMC_READ_REG(DRAMC_CONF1);
+		register unsigned int old __asm__("$3") = DRAMC_READ_REG(DRAMC_CONF1);
 		__asm__ volatile("" : "+r"(old));
 		register int bits __asm__("$2") = (col_bits - 8) << 8;
 		__asm__ volatile("" : "+r"(bits));
@@ -175,8 +168,7 @@ unsigned int calculate_dram_size(void)
 	prom_puts("Calculate size.\n");
 	for (size = 32 << 20; size < (512 << 20); size <<= 1) {
 		unsigned int readback;
-		register unsigned int address __asm__("$16") =
-			DRAM_START + size;
+		register unsigned int address __asm__("$16") = DRAM_START + size;
 		/* Preserve the reference's address calculation before the first write. */
 		__asm__ volatile("" : "+r"(address));
 		ADDR_WRITE_REG(0x12345678, DRAM_START);
@@ -293,11 +285,11 @@ int main(void)
 	prom_puts("EN751221 DRAMC v1.2.2 - " PLAIN_VERSION "\r\n\r\n");
 
 	int fail = 0, i;
-	if ((VPint(0xbfb0005c) & 0xffff) == 1) {
+	if ((readl(0xbfb0005c) & 0xffff) == 1) {
 		if (isEN7526D || isEN7513) {
 			dram_type = DDR3;
 			PKG_type = BGA1;
-		} else if (!((VPint(CR_AHB_HWCONF) >> 4) & 1)) {
+		} else if (!((readl(CR_AHB_HWCONF) >> 4) & 1)) {
 			dram_type = DDR3;
 			PKG_type = BGA2;
 		} else {
@@ -319,7 +311,7 @@ int main(void)
 				PKG_type = BGA1;
 			else
 				PKG_type = BGA2;
-			dram_type = (VPint(CR_AHB_HWCONF) >> 4) & 1;
+			dram_type = (readl(CR_AHB_HWCONF) >> 4) & 1;
 		}
 	}
 
@@ -345,7 +337,7 @@ int main(void)
 		prom_print_dec(opt_dle_value);
 		prom_puts("\n");
 		prom_puts("%DRAMC calibration fail\n\r");
-		VPint(0xbfb00040) |= 1 << 31;
+		readl(0xbfb00040) |= 1 << 31;
 		fail = 1;
 	}
 	if (PKG_type == KGD && EFUSE_Fix32MB)

@@ -9,106 +9,106 @@ extern void prom_print_dec(unsigned int value);
 extern void pause_polling(unsigned int count);
 
 #define WRITE(offset, value)		DRAMC_WRITE_REG(value, offset)
-#define READ(offset)				DRAMC_READ_REG(offset)
-#define SET(offset, value)			DRAMC_WRITE_SET(value, offset)
+#define READ(offset)			DRAMC_READ_REG(offset)
+#define SET(offset, value)		DRAMC_WRITE_SET(value, offset)
 #define UPDATE(offset, mask, value)	WRITE(offset, (READ(offset) & (mask)) | (value))
-#define DELAY(count)				delay_a_while(count)
-#define PACKAGE_WRITE(offset, kgd, bga) \
-	do { \
-		if (PKG_type == KGD) \
-			WRITE(offset, kgd); \
-		else \
-			WRITE(offset, bga); \
+#define DELAY(count)			delay_a_while(count)
+#define PACKAGE_WRITE(offset, kgd, bga)                                                            \
+	do {                                                                                       \
+		if (PKG_type == KGD)                                                               \
+			WRITE(offset, kgd);                                                        \
+		else                                                                               \
+			WRITE(offset, bga);                                                        \
 	} while (0)
 
 /* The reference retains the adjusted timeout at selected command boundaries.
  * Empty constraints preserve those otherwise-unused results without opcodes.
  */
-#define WAIT_COMMAND(mask, keep_count)                         \
-	do {                                                   \
-		timeout = 0xffff;                              \
-		while (!(READ(DRAMC_SPCMDRESP) & (mask)))         \
-			if (--timeout == 0)                    \
-				goto failed;                   \
-		if (keep_count)                                \
-			__asm__ volatile("" : : "r"(timeout)); \
+#define WAIT_COMMAND(mask, keep_count)                                                             \
+	do {                                                                                       \
+		timeout = 0xffff;                                                                  \
+		while (!(READ(DRAMC_SPCMDRESP) & (mask)))                                          \
+			if (--timeout == 0)                                                        \
+				goto failed;                                                       \
+		if (keep_count)                                                                    \
+			__asm__ volatile("" : : "r"(timeout));                                     \
 	} while (0)
 
-#define COMMAND(mask, keep_count, delay)        \
-	do {                                    \
-		WRITE(DRAMC_SPCMD, mask);           \
-		WAIT_COMMAND(mask, keep_count); \
-		DELAY(delay);                   \
-		WRITE(DRAMC_SPCMD, 0);              \
+#define COMMAND(mask, keep_count, delay)                                                           \
+	do {                                                                                       \
+		WRITE(DRAMC_SPCMD, mask);                                                          \
+		WAIT_COMMAND(mask, keep_count);                                                    \
+		DELAY(delay);                                                                      \
+		WRITE(DRAMC_SPCMD, 0);                                                             \
 	} while (0)
 
-#define PLL_FINISH(feedback, phase)          \
-	do {                                     \
-		SET(0x604, 0x100);                   \
-		UPDATE(0x618, 0xf3cf0000, feedback); \
-		UPDATE(0x624, 0xf3cf0000, feedback); \
-		UPDATE(0x630, 0xf3cf0000, feedback); \
-		WRITE(0x648, 0xc0004ab2);                \
-		DELAY(1);                            \
-		UPDATE(0x614, 0xf01fffff, phase);    \
-		SET(0x618, 0x02000000);              \
-		SET(0x624, 0x02000000);              \
-		SET(0x630, 0x02000000);              \
-		DELAY(20);                           \
-		SET(0x640, 0x10);                    \
-		DELAY(1);                            \
+#define PLL_FINISH(feedback, phase)                                                                \
+	do {                                                                                       \
+		SET(0x604, 0x100);                                                                 \
+		UPDATE(0x618, 0xf3cf0000, feedback);                                               \
+		UPDATE(0x624, 0xf3cf0000, feedback);                                               \
+		UPDATE(0x630, 0xf3cf0000, feedback);                                               \
+		WRITE(0x648, 0xc0004ab2);                                                          \
+		DELAY(1);                                                                          \
+		UPDATE(0x614, 0xf01fffff, phase);                                                  \
+		SET(0x618, 0x02000000);                                                            \
+		SET(0x624, 0x02000000);                                                            \
+		SET(0x630, 0x02000000);                                                            \
+		DELAY(20);                                                                         \
+		SET(0x640, 0x10);                                                                  \
+		DELAY(1);                                                                          \
 	} while (0)
 
 /* The DDR3 40 MHz paths retain different arithmetic temporaries in the object. */
-#define UPDATE_KGD40(offset, mask, value)                  \
-	do {                                                   \
-		register unsigned int v __asm__("$3") = READ(offset); \
-		__asm__ volatile("" : "+r"(v));                    \
-		WRITE(offset, (v & mask) | value);                     \
+#define UPDATE_KGD40(offset, mask, value)                                                          \
+	do {                                                                                       \
+		register unsigned int v __asm__("$3") = READ(offset);                              \
+		__asm__ volatile("" : "+r"(v));                                                    \
+		WRITE(offset, (v & mask) | value);                                                 \
 	} while (0)
 
-#define UPDATE_BGA40(offset, mask, value)                   \
-	do {                                                    \
-		register unsigned int v __asm__("$4") = READ(offset);  \
-		__asm__ volatile("" : "+r"(v));                     \
-		register unsigned int m __asm__("$2") = mask;       \
-		__asm__ volatile("" : : "r"(m));                    \
-		register unsigned int masked __asm__("$3") = v & m; \
-		__asm__ volatile("" : "+r"(masked));                \
-		WRITE(offset, masked | value);                          \
+#define UPDATE_BGA40(offset, mask, value)                                                          \
+	do {                                                                                       \
+		register unsigned int v __asm__("$4") = READ(offset);                              \
+		__asm__ volatile("" : "+r"(v));                                                    \
+		register unsigned int m __asm__("$2") = mask;                                      \
+		__asm__ volatile("" : : "r"(m));                                                   \
+		register unsigned int masked __asm__("$3") = v & m;                                \
+		__asm__ volatile("" : "+r"(masked));                                               \
+		WRITE(offset, masked | value);                                                     \
 	} while (0)
 
-#define PLL_CONFIG(update_kgd40, update_bga40)               \
-	do {                                                     \
-		if (PKG_type == KGD) {                               \
-			UPDATE(0x640, ~0x230, 0x220);                    \
-			UPDATE(0x604, ~0x1e, 0x12);                      \
-			if (xtal)                                        \
-				UPDATE(0x600, 0xfffc0808, 0x131);            \
-			else                                             \
-				update_kgd40(0x600, 0xfffc0808, 0x181);      \
-			DELAY(1);                                        \
-			SET(0x600, 0x02000000);                          \
-			DELAY(20);                                       \
-			PLL_FINISH(0x088a, 0x02800000);                  \
-		} else {                                             \
-			UPDATE(0x640, ~0x230, 0x220);                    \
-			UPDATE(0x604, ~0x1e, 0x12);                      \
-			if (xtal)                                        \
-				UPDATE(0x600, 0xfbfc0808, 0x04000135);       \
-			else                                             \
-				update_bga40(0x600, 0xfbfc0808, 0x04000185); \
-			UPDATE(0x608, 0x1ffff, 0x2b020000);              \
-			UPDATE(0x60c, 0xffff0000, 0x687);                \
-			DELAY(1);                                        \
-			SET(0x600, 0x02000000);                          \
-			DELAY(20);                                       \
-			SET(0x60c, 0x00080000);                          \
-			DELAY(1);                                        \
-			SET(0x60c, 0x00010000);                          \
-			DELAY(20);                                       \
-			PLL_FINISH(0x08aa, 0x04000000);                  \
-		}                                                    \
+#define PLL_CONFIG(update_kgd40, update_bga40)                                                     \
+	do {                                                                                       \
+		if (PKG_type == KGD) {                                                             \
+			UPDATE(0x640, ~0x230, 0x220);                                              \
+			UPDATE(0x604, ~0x1e, 0x12);                                                \
+			if (xtal)                                                                  \
+				UPDATE(0x600, 0xfffc0808, 0x131);                                  \
+			else                                                                       \
+				update_kgd40(0x600, 0xfffc0808, 0x181);                            \
+			DELAY(1);                                                                  \
+			SET(0x600, 0x02000000);                                                    \
+			DELAY(20);                                                                 \
+			PLL_FINISH(0x088a, 0x02800000);                                            \
+		} else {                                                                           \
+			UPDATE(0x640, ~0x230, 0x220);                                              \
+			UPDATE(0x604, ~0x1e, 0x12);                                                \
+			if (xtal)                                                                  \
+				UPDATE(0x600, 0xfbfc0808, 0x04000135);                             \
+			else                                                                       \
+				update_bga40(0x600, 0xfbfc0808, 0x04000185);                       \
+			UPDATE(0x608, 0x1ffff, 0x2b020000);                                        \
+			UPDATE(0x60c, 0xffff0000, 0x687);                                          \
+			DELAY(1);                                                                  \
+			SET(0x600, 0x02000000);                                                    \
+			DELAY(20);                                                                 \
+			SET(0x60c, 0x00080000);                                                    \
+			DELAY(1);                                                                  \
+			SET(0x60c, 0x00010000);                                                    \
+			DELAY(20);                                                                 \
+			PLL_FINISH(0x08aa, 0x04000000);                                            \
+		}                                                                                  \
 	} while (0)
 
 int en7512_dramc_init(void)
@@ -120,7 +120,7 @@ int en7512_dramc_init(void)
 	else
 		prom_puts("BGA IC\n");
 
-	xtal = VPint(CR_AHB_HWCONF) & 1;
+	xtal = readl(CR_AHB_HWCONF) & 1;
 	prom_puts("Xtal: ");
 	if (xtal == 1)
 		prom_puts("25Mhz");
@@ -130,7 +130,7 @@ int en7512_dramc_init(void)
 
 	if (dram_type == DDR2) {
 		prom_puts("DDR2 init.\n");
-		VPint(0xbfb00040) = 0;
+		readl(0xbfb00040) = 0;
 		DELAY(200);
 		WRITE(0xfc, 0x07110000);
 		if (PKG_type == KGD) {
@@ -200,10 +200,10 @@ int en7512_dramc_init(void)
 		WRITE(0xf8, 0xedcb000f);
 		WRITE(0x1d8, 0x00c80008);
 		WRITE(0x18, 0x31313131);
-		VPint(0xbfb00074) = 0x104;
+		readl(0xbfb00074) = 0x104;
 	} else {
 		prom_puts("DDR3 init.\n");
-		VPint(0xbfb00040) = 0;
+		readl(0xbfb00040) = 0;
 		DELAY(200);
 		WRITE(0xfc, 0x07110000);
 		if (PKG_type == KGD) {
@@ -272,7 +272,7 @@ int en7512_dramc_init(void)
 		WRITE(0xf8, 0xedcb000f);
 		WRITE(0x1d8, 0x00c80008);
 		WRITE(0x18, 0x31313131);
-		VPint(0xbfb00074) = 0x105;
+		readl(0xbfb00074) = 0x105;
 	}
 	DELAY(2);
 	prom_puts("DRAMC init done. \n");

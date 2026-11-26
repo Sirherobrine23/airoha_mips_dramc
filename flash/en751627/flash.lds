@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
-/* EN751627 keeps its large vendor DRAMC below mi.conf. The post-DRAM
+/* EN751627 keeps its source-built DRAMC below mi.conf. The post-DRAM
  * loader lives in the second 64 KiB, addressed by the existing header.
  */
 OUTPUT_ARCH(mips)

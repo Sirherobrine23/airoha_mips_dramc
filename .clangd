@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://json.schemastore.org/clangd.json
+# Generate the per-SoC compilation database with `make clangd`.
+CompileFlags:
+  CompilationDatabase: out/clangd
+  Compiler: clang
+  Remove: [-Werror, -Werror=*]
+  Add:
+    - -Iincludes
+Index:
+  Background: Build
+Completion:
+  HeaderInsertion: Never

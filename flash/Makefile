@@ -13,7 +13,7 @@ define flash/compile/decompress
 		object=$$(basename "$$source" .c); \
 		$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 			-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 \
-			$(FLASH_DECOMP_FLAGS) -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+			$(FLASH_DECOMP_FLAGS) $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 			-c "$(SRCTREE)/flash/$$source" -o "$(1)/$$object.o"; \
 	done
 endef
@@ -25,23 +25,23 @@ define flash/compile
 	@printf '  CC         %s\n' loader-start.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/loader-start.S" -o "$(CHAIN_BUILD)/loader-start.o"
 	@printf '  CC         %s\n' uart.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/uart.c" -o "$(CHAIN_BUILD)/uart.o"
 	@printf '  CC         %s\n' loader.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
 		-DPAYLOAD_OFFSET=$(PAYLOAD_OFFSET) \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/loader.c" -o "$(CHAIN_BUILD)/loader.o"
 	@printf '  CC         %s\n' early_sfc.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -Os -G0 -Wall \
-		$(FLASH_STANDALONE_CPPFLAGS) -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		$(FLASH_STANDALONE_CPPFLAGS) $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/early_sfc.c" -o "$(CHAIN_BUILD)/early_sfc.o"
 	$(call flash/compile/decompress,$(CHAIN_BUILD))
 	@printf '  LD         %s\n' "$(CHAIN_BUILD)/chainload.elf"
@@ -58,12 +58,12 @@ define tcboot/compile/boot2
 	@printf '  CC         %s\n' move_data.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
-		-D__ASSEMBLY__ -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		-D__ASSEMBLY__ $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(TCBOOT_MOVE_DATA_SRC)" -o "$(TCBOOT_BUILD)/move_data.o"
 	@printf '  CC         %s\n' boot2.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
-		-D__ASSEMBLY__ -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		-D__ASSEMBLY__ $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(TCBOOT_BOOT2_SRC)" -o "$(TCBOOT_BUILD)/boot2.o"
 	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -G 0 -static -n -nostdlib --build-id=none \
 		-T "$(TCBOOT_MOVE_DATA_LDS)" -Map "$(TCBOOT_BUILD)/move_data.map" \
@@ -103,22 +103,22 @@ define tcboot/compile
 	@printf '  CC         %s\n' loader-start.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/loader-start.S" -o "$(TCBOOT_BUILD)/loader-start.o"
 	@printf '  CC         %s\n' uart.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/uart.c" -o "$(TCBOOT_BUILD)/uart.o"
 	@printf '  CC         %s\n' loader.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
-		-DPAYLOAD_OFFSET=$(PAYLOAD_OFFSET) -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		-DPAYLOAD_OFFSET=$(PAYLOAD_OFFSET) $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/loader.c" -o "$(TCBOOT_BUILD)/loader.o"
 	@printf '  CC         %s\n' flash.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
-		$(FLASH_STANDALONE_CPPFLAGS) -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		$(FLASH_STANDALONE_CPPFLAGS) $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/early_sfc.c" -o "$(TCBOOT_BUILD)/flash.o"
 	$(call flash/compile/decompress,$(TCBOOT_BUILD))
 	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(SRCTREE)/flash/loader.lds" \
@@ -129,12 +129,12 @@ define tcboot/compile
 	@printf '  CC         %s\n' start.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
-		-D__ASSEMBLY__ -I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		-D__ASSEMBLY__ $(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/$(DEVICE_SOC)/start.S" -o "$(TCBOOT_BUILD)/start.o"
 	@printf '  CC         %s\n' stages.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(TCBOOT_SIZE_OPT) -G0 \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/flash" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/flash" \
 		-c "$(SRCTREE)/flash/$(DEVICE_SOC)/stages.S" -o "$(TCBOOT_BUILD)/stages.o"
 	$(if $(filter y,$(TCBOOT_BOOT2)),$(call tcboot/compile/boot2),$(call tcboot/compile/basic))
 	$(TOOL_LD) $(TARGET_ENDIAN) -m $(SOC_LD_EMULATION) -T "$(SRCTREE)/flash/$(if $(filter en751627,$(DEVICE_SOC)),en751627/)flash.lds" \

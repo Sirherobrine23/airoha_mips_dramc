@@ -7,8 +7,7 @@ extern void chainload_jump(u32 entry) __attribute__((noreturn));
 
 static void kick(void)
 {
-	mmio_write32(CR_TIMER_CTL,
-		    (mmio_read32(CR_TIMER_CTL) & 0xffc0ffffu) | 0x00200000u);
+	mmio_write32(CR_TIMER_CTL, (mmio_read32(CR_TIMER_CTL) & 0xffc0ffffu) | 0x00200000u);
 	__asm__ volatile("sync" ::: "memory");
 }
 

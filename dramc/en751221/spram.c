@@ -1,22 +1,22 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "en751221_ddr.h"
 
-#define ILOAD 4
-#define DLOAD 5
-#define ISTORE 8
-#define DSTORE 9
-#define IDATA 12
-#define K0 0x80000000U
-#define EN 0x80U
-#define PAM 0xfffff000U
-#define SZM 0xfffff000U
-#define ERR BIT(28)
+#define ILOAD	4
+#define DLOAD	5
+#define ISTORE	8
+#define DSTORE	9
+#define IDATA	12
+#define K0	0x80000000U
+#define EN	0x80U
+#define PAM	0xfffff000U
+#define SZM	0xfffff000U
+#define ERR	BIT(28)
 
-#define cop(op, a)                                                                           \
-	__asm__ __volatile__(                                                                \
-		".set push\n\t.set noreorder\n\t.set mips3\n\tcache %0,0(%1)\n\t.set pop" :: \
-			"i"(op),                                                             \
-		"r"((unsigned long)(a))                                                      \
+#define cop(op, a)                                                                                 \
+	__asm__ __volatile__(                                                                      \
+		".set push\n\t.set noreorder\n\t.set mips3\n\tcache %0,0(%1)\n\t.set pop" ::"i"(   \
+			op),                                                                       \
+		"r"((unsigned long)(a))                                                            \
 		: "memory")
 
 static inline void h(void)
@@ -113,9 +113,8 @@ void ispram_fill(int size, unsigned from, unsigned to)
 	if (from)
 		p = from;
 	for (o = 0; o < z; o += 8) {
-		unsigned x = e(),
-				 a = *(unsigned *)(unsigned long)(K0 | p + o),
-				 b = *(unsigned *)(unsigned long)(K0 | p + o + 4);
+		unsigned x = e(), a = *(unsigned *)(unsigned long)(K0 | p + o),
+			 b = *(unsigned *)(unsigned long)(K0 | p + o + 4);
 
 		E(x | ERR);
 		h();

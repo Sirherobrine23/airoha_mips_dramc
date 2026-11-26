@@ -12,6 +12,8 @@ define Device/en751221
 
 	DRAMC_LDS := $$(DRAMC_DIR)/ddr.lds
 	DRAMC_INCLUDES := -I$$(DRAMC_DIR)
+	DRAMC_SHARED_DIR := $$(SRCTREE)/includes/dramc
+	DRAMC_SHARED_OBJS := dramc_dle_cal.o dramc_dqs_gw_cal.o
 	DRAMC_OBJS := \
 		head.o \
 		setup.o \
@@ -21,6 +23,7 @@ define Device/en751221
 		string.o \
 		dramc.o \
 		dramc_dq_dqs_cal.o \
+		dramc_test.o \
 		dramc_dle_cal.o \
 		dramc_dqs_gw_cal.o \
 		en7512_dramc_init.o \

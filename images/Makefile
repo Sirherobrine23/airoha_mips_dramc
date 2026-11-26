@@ -40,11 +40,14 @@ define Device/Init
 	DRAMC_LDS :=
 	DRAMC_INCLUDES :=
 	DRAMC_OBJS :=
+	DRAMC_SHARED_DIR :=
+	DRAMC_SHARED_OBJS :=
 	DRAMC_GNU_ASM_OBJS :=
 	DRAMC_RELOC_SRCS :=
 	DRAMC_CHECK_RELOCS := n
 	DRAMC_PREBUILT :=
 	DRAMC_PREBUILT_SIZE :=
+	DRAMC_LDFLAGS :=
 	DDR_CPPFLAGS :=
 
 	FLASH_STANDALONE_CPPFLAGS :=
@@ -66,6 +69,7 @@ define Device/Init
 	RECOVERY_OUTPUT := $$(OUT)/$(1)-recovery-chainloader.bin
 	CHAINLOADER_BASE :=
 	CHAINLOADER_SOC_CPPFLAGS :=
+	CHAINLOADER_SOC_OBJS :=
 	CHAINLOADER_SFC_CPPFLAGS :=
 	CHAINLOADER_CPPFLAGS :=
 
@@ -102,13 +106,14 @@ DEVICE_VARS := \
 	CROSS_COMPILE GNU_CROSS_COMPILE GNU_CC SIZE_OPT TARGET_ENDIAN \
 	TOOL_CC TOOL_LD TOOL_OBJCOPY TOOL_NM TOOL_CC_TARGET \
 	DRAMC_DIR DRAMC_BUILD DRAMC_OUTPUT DRAMC_LDS DRAMC_INCLUDES DRAMC_OBJS \
+	DRAMC_SHARED_DIR DRAMC_SHARED_OBJS \
 	DRAMC_GNU_ASM_OBJS DRAMC_RELOC_SRCS DRAMC_CHECK_RELOCS DRAMC_PREBUILT \
-	DRAMC_PREBUILT_SIZE DDR_CPPFLAGS \
+	DRAMC_PREBUILT_SIZE DRAMC_LDFLAGS DDR_CPPFLAGS \
 	FLASH_STANDALONE_CPPFLAGS CHAIN_BUILD CHAIN_OUTPUT PAYLOAD_OFFSET \
 	TCBOOT_BUILD TCBOOT_OUTPUT TCBOOT_SIZE_OPT DDR_IMAGE TCBOOT_BOOT2 TCBOOT_MOVE_DATA_SRC \
 	TCBOOT_MOVE_DATA_LDS TCBOOT_BOOT2_SRC TCBOOT_BOOT2_LDS \
 	RECOVERY_BUILD RECOVERY_OUTPUT CHAINLOADER_BASE CHAINLOADER_SOC_CPPFLAGS \
-	CHAINLOADER_SFC_CPPFLAGS CHAINLOADER_CPPFLAGS \
+	CHAINLOADER_SOC_OBJS CHAINLOADER_SFC_CPPFLAGS CHAINLOADER_CPPFLAGS \
 	BOOTEXT_MODE BOOTEXT_BUILD BOOTEXT_OUTPUT BOOTEXT_DDR_WORK BOOTEXT_CHAIN_WORK \
 	BOOTEXT_DDR_IMAGE BOOTEXT_CHAIN_IMAGE BOOTEXT_DDR_ELF BOOTEXT_CHAIN_ELF \
 	BOOTEXT_BASE BOOTEXT_CHAIN_OFFSET BOOTEXT_CHAINLOADER_BASE BOOTEXT_SRAM_SIZE \
@@ -185,6 +190,26 @@ $(1)-bootext: $(1)-bootext-dramc $(1)-bootext-chainloader $$(HOST_TOOL)
 	@printf '  BOOTEXT    %s\n' "$$(BOOTEXT_OUTPUT)"
 endef
 
+define Device/Build/BootextDramc
+$(call Device/Export,$(1)-bootext)
+$(call Device/Export,$(1)-bootext-dramc)
+
+$(1)-bootext-dramc: DRAMC_BUILD := $$(BOOTEXT_DDR_WORK)/.dramc
+$(1)-bootext-dramc: DRAMC_OUTPUT := $$(BOOTEXT_DDR_IMAGE)
+$(1)-bootext-dramc: DDR_CPPFLAGS := $$(BOOTEXT_DRAMC_CPPFLAGS)
+$(1)-bootext-dramc: SIZE_OPT := $$(BOOTEXT_SIZE_OPT)
+
+.PHONY: $(1)-bootext $(1)-bootext-dramc
+$(1): $(1)-bootext
+
+$(1)-bootext-dramc:
+	$$(call dramc/compile)
+
+$(1)-bootext: $(1)-bootext-dramc
+	$$(call bootext/compile/dramc-only)
+	@printf '  BOOTEXT    %s\n' "$$(BOOTEXT_OUTPUT)"
+endef
+
 define Device/Build/BootextUnsupported
 .PHONY: $(1)-bootext
 $(1)-bootext:
@@ -216,7 +241,7 @@ define Device/Register
 	$(eval $(call Device/Build/Common,$(1)))
 
 	$(if $(filter y,$(SOC_RECOVERY_CHAINLOADER)),$(eval $(call Device/Build/Recovery,$(1))),$(eval $(call Device/Build/RecoveryUnsupported,$(1))))
-	$(if $(filter y,$(SOC_BOOTEXT)),$(eval $(call Device/Build/Bootext,$(1))),$(eval $(call Device/Build/BootextUnsupported,$(1))))
+	$(if $(filter y,$(SOC_BOOTEXT)),$(if $(filter dramc-only,$(BOOTEXT_MODE)),$(eval $(call Device/Build/BootextDramc,$(1))),$(eval $(call Device/Build/Bootext,$(1)))),$(eval $(call Device/Build/BootextUnsupported,$(1))))
 	$(if $(filter y,$(SOC_TCBOOT)),$(eval $(call Device/Build/TCBoot,$(1))),$(eval $(call Device/Build/TCBootUnsupported,$(1))))
 
 	$(if $(value Device/$(1)/extra),$(eval $(call Device/$(1)/extra,$(1))))

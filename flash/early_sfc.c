@@ -9,49 +9,49 @@
 
 #define SF_READ_IDLE_EN		0x004
 #define SF_MTX_MODE_TOG		0x014
-#define SF_RDCTL_FSM			0x018
-#define SF_MACMUX_SEL			0x01c
-#define SF_MANUAL_EN			0x020
-#define SF_MANUAL_OPFIFO_EMPTY		0x024
-#define SF_MANUAL_OPFIFO_WDATA		0x028
-#define SF_MANUAL_OPFIFO_FULL		0x02c
-#define SF_MANUAL_OPFIFO_WR		0x030
-#define SF_MANUAL_DFIFO_FULL		0x034
-#define SF_MANUAL_DFIFO_WDATA		0x038
-#define SF_MANUAL_DFIFO_EMPTY		0x03c
-#define SF_MANUAL_DFIFO_RD		0x040
-#define SF_MANUAL_DFIFO_RDATA		0x044
-#define SF_SI_CK_SEL			0x09c
-#define SF_STRAP			0x114
+#define SF_RDCTL_FSM		0x018
+#define SF_MACMUX_SEL		0x01c
+#define SF_MANUAL_EN		0x020
+#define SF_MANUAL_OPFIFO_EMPTY	0x024
+#define SF_MANUAL_OPFIFO_WDATA	0x028
+#define SF_MANUAL_OPFIFO_FULL	0x02c
+#define SF_MANUAL_OPFIFO_WR	0x030
+#define SF_MANUAL_DFIFO_FULL	0x034
+#define SF_MANUAL_DFIFO_WDATA	0x038
+#define SF_MANUAL_DFIFO_EMPTY	0x03c
+#define SF_MANUAL_DFIFO_RD	0x040
+#define SF_MANUAL_DFIFO_RDATA	0x044
+#define SF_SI_CK_SEL		0x09c
+#define SF_STRAP		0x114
 
 #ifndef ECONET_SFC_TINY_WRITE_ONLY
-#define SF_STRAP_ADDR_4B		BIT(0)
+#define SF_STRAP_ADDR_4B	BIT(0)
 #endif
-#define SF_STRAP_SPI_NAND		BIT(1)
-#define SF_STRAP_DUMMY_APPEND		BIT(2)
+#define SF_STRAP_SPI_NAND	BIT(1)
+#define SF_STRAP_DUMMY_APPEND	BIT(2)
 
-#define OP_CSH				0x00
-#define OP_CSL				0x01
-#define OP_CK				0x02
-#define OP_OUTS				0x08
-#define OP_INS				0x0c
+#define OP_CSH			0x00
+#define OP_CSL			0x01
+#define OP_CK			0x02
+#define OP_OUTS			0x08
+#define OP_INS			0x0c
 
-#define OP_SHIFT			9
-#define OP_CMD_MASK			0x1f
-#define OP_LEN_MASK			0x1ff
+#define OP_SHIFT		9
+#define OP_CMD_MASK		0x1f
+#define OP_LEN_MASK		0x1ff
 
-#define SPIN_LIMIT			1000000
-#define NAND_PAGE_SIZE			2048
+#define SPIN_LIMIT		1000000
+#define NAND_PAGE_SIZE		2048
 #ifndef ECONET_NAND_ERASE_SHIFT
-#define ECONET_NAND_ERASE_SHIFT	17	/* 128 KiB */
+#define ECONET_NAND_ERASE_SHIFT	17 /* 128 KiB */
 #endif
 #define NAND_ERASE_SIZE		(1U << ECONET_NAND_ERASE_SHIFT)
-#define NAND_PROGRAM_CHUNK		256
+#define NAND_PROGRAM_CHUNK	256
 #define NAND_STATUS_OIP		BIT(0)
-#define NAND_STATUS_EFAIL		BIT(2)
-#define NAND_STATUS_PFAIL		BIT(3)
+#define NAND_STATUS_EFAIL	BIT(2)
+#define NAND_STATUS_PFAIL	BIT(3)
 #ifndef ECONET_SFC_TINY_WRITE_ONLY
-#define NOR_READ_CHUNK			1024
+#define NOR_READ_CHUNK	1024
 #endif
 
 static inline void __iomem *sf_reg(u32 reg)
@@ -355,8 +355,7 @@ static int sf_nand_program_execute(u32 page)
 	return (status & NAND_STATUS_PFAIL) ? -EIO : 0;
 }
 
-static int sf_nand_program_page(u32 page, u32 column, const u8 *src,
-				size_t len)
+static int sf_nand_program_page(u32 page, u32 column, const u8 *src, size_t len)
 {
 	int ret;
 
@@ -370,8 +369,7 @@ static int sf_nand_program_page(u32 page, u32 column, const u8 *src,
 	return sf_nand_program_execute(page);
 }
 
-static int sf_nand_read_cache(u32 column, u8 *dst, size_t len,
-			      bool dummy_append)
+static int sf_nand_read_cache(u32 column, u8 *dst, size_t len, bool dummy_append)
 {
 	u8 address[3];
 	size_t i;
@@ -416,8 +414,7 @@ static int sf_nand_read_cache(u32 column, u8 *dst, size_t len,
 }
 
 #ifndef ECONET_SFC_TINY_WRITE_ONLY
-static int sf_nor_read_once(u32 offset, u8 *dst, size_t len, bool addr4b,
-			    bool dummy_append)
+static int sf_nor_read_once(u32 offset, u8 *dst, size_t len, bool addr4b, bool dummy_append)
 {
 	u8 address[4];
 	size_t addr_len = 0;
@@ -465,8 +462,7 @@ static int sf_nor_read_once(u32 offset, u8 *dst, size_t len, bool addr4b,
 	return sf_finish();
 }
 
-static int sf_nor_read(u32 offset, u8 *dst, size_t len, bool addr4b,
-		       bool dummy_append)
+static int sf_nor_read(u32 offset, u8 *dst, size_t len, bool addr4b, bool dummy_append)
 {
 	while (len) {
 		size_t chunk = NOR_READ_CHUNK - (offset % NOR_READ_CHUNK);
@@ -474,8 +470,7 @@ static int sf_nor_read(u32 offset, u8 *dst, size_t len, bool addr4b,
 
 		if (chunk > len)
 			chunk = len;
-		ret = sf_nor_read_once(offset, dst, chunk, addr4b,
-				       dummy_append);
+		ret = sf_nor_read_once(offset, dst, chunk, addr4b, dummy_append);
 		if (ret)
 			return ret;
 		offset += chunk;
@@ -487,7 +482,6 @@ static int sf_nor_read(u32 offset, u8 *dst, size_t len, bool addr4b,
 }
 
 #endif
-
 
 static int sf_nand_get_page_size(u32 *page_size)
 {
@@ -538,8 +532,7 @@ int econet_sfc_read(u32 offset, void *dst, size_t len)
 		ret = sf_nand_load_page(page);
 		if (ret)
 			return ret;
-		ret = sf_nand_read_cache(column, buf, chunk,
-					 strap & SF_STRAP_DUMMY_APPEND);
+		ret = sf_nand_read_cache(column, buf, chunk, strap & SF_STRAP_DUMMY_APPEND);
 		if (ret)
 			return ret;
 
@@ -551,7 +544,6 @@ int econet_sfc_read(u32 offset, void *dst, size_t len)
 	return 0;
 }
 
-
 int econet_sfc_erase(u32 offset, size_t len)
 {
 	u32 strap = __raw_readl(sf_reg(SF_STRAP));
@@ -560,8 +552,7 @@ int econet_sfc_erase(u32 offset, size_t len)
 
 	if (!(strap & SF_STRAP_SPI_NAND))
 		return -EOPNOTSUPP;
-	if (!len || (offset & (NAND_ERASE_SIZE - 1)) ||
-	    (len & (NAND_ERASE_SIZE - 1)))
+	if (!len || (offset & (NAND_ERASE_SIZE - 1)) || (len & (NAND_ERASE_SIZE - 1)))
 		return -EINVAL;
 	ret = sf_nand_get_page_size(&page_size);
 	if (ret)

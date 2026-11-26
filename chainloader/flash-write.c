@@ -2,7 +2,7 @@
 #include "chainloader.h"
 #include "../flash/sfc.h"
 
-#define TCBOOT_FLASH_OFFSET 0x00000000U
+#define TCBOOT_FLASH_OFFSET	0x00000000U
 
 int chainloader_flash_tcboot(const void *image, u32 len)
 {
@@ -16,6 +16,12 @@ int chainloader_flash_tcboot(const void *image, u32 len)
 
 	if (len != TCBOOT_FLASH_SIZE)
 		return -EINVAL;
+
+#ifdef CHAINLOADER_EN751627
+	/* The manual SFC backend does not generate controller-ECC/OOB data. */
+	if (mmio_read32(0xbfb00284u) & (1u << 23))
+		return CHAINLOADER_FLASH_UNSUPPORTED;
+#endif
 
 	ret = econet_sfc_init();
 	if (ret)

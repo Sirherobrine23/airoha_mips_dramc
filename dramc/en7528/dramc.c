@@ -62,7 +62,8 @@ int check_column_bank(void)
 		u32 readback;
 
 		DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300u) |
-				((u32)(col_bits - 7) << 8), DRAMC_CONF1);
+					((u32)(col_bits - 7) << 8),
+				DRAMC_CONF1);
 		delay_a_while(2);
 
 		ADDR_WRITE_REG(0x12345678, DRAM_BASE_ADDR);
@@ -88,8 +89,8 @@ int check_column_bank(void)
 		return -1;
 	}
 
-	DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300u) |
-			((u32)(col_bits - 8) << 8), DRAMC_CONF1);
+	DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300u) | ((u32)(col_bits - 8) << 8),
+			DRAMC_CONF1);
 	delay_a_while(2);
 
 	REG32(0xbfb00074) = (REG32(0xbfb00074) & ~3u) | 1u;
@@ -136,25 +137,51 @@ void set_TRFC(void)
 
 	if (PKG_type == QFP) {
 		switch (effective_size) {
-		case 64:  set_trfc_values(0xa88d0481, 0x600); break;
-		case 128: set_trfc_values(0xa8830481, 0x610); break;
-		case 256: set_trfc_values(0xa8800481, 0x620); break;
-		case 512: set_trfc_values(0xa8850481, 0x640); break;
+		case 64:
+			set_trfc_values(0xa88d0481, 0x600);
+			break;
+		case 128:
+			set_trfc_values(0xa8830481, 0x610);
+			break;
+		case 256:
+			set_trfc_values(0xa8800481, 0x620);
+			break;
+		case 512:
+			set_trfc_values(0xa8850481, 0x640);
+			break;
 		}
 	} else if (dram_type == DDR2) {
 		switch (effective_size) {
-		case 32:  set_trfc_values(0xa80b0481, 0x600); break;
-		case 64:  set_trfc_values(0xa8030481, 0x610); break;
-		case 128: set_trfc_values(0xa8080481, 0x610); break;
-		case 256: set_trfc_values(0xa80b0481, 0x620); break;
-		case 512: set_trfc_values(0xa80d0481, 0x640); break;
+		case 32:
+			set_trfc_values(0xa80b0481, 0x600);
+			break;
+		case 64:
+			set_trfc_values(0xa8030481, 0x610);
+			break;
+		case 128:
+			set_trfc_values(0xa8080481, 0x610);
+			break;
+		case 256:
+			set_trfc_values(0xa80b0481, 0x620);
+			break;
+		case 512:
+			set_trfc_values(0xa80d0481, 0x640);
+			break;
 		}
 	} else {
 		switch (effective_size) {
-		case 64:  set_trfc_values(0xa8830481, 0x610); break;
-		case 128: set_trfc_values(0xa88a0481, 0x610); break;
-		case 256: set_trfc_values(0xa88b0481, 0x620); break;
-		case 512: set_trfc_values(0xa8890481, 0x650); break;
+		case 64:
+			set_trfc_values(0xa8830481, 0x610);
+			break;
+		case 128:
+			set_trfc_values(0xa88a0481, 0x610);
+			break;
+		case 256:
+			set_trfc_values(0xa88b0481, 0x620);
+			break;
+		case 512:
+			set_trfc_values(0xa8890481, 0x650);
+			break;
 		}
 	}
 
@@ -211,8 +238,7 @@ static int detect_dram_size_mib(void)
 	prom_puts("Calculate size.\n");
 
 	for (size = 32u << 20; size < (1u << 30); size <<= 1) {
-		volatile u32 *alias =
-			(volatile u32 *)(unsigned long)(DRAM_PROBE_BASE + size);
+		volatile u32 *alias = (volatile u32 *)(unsigned long)(DRAM_PROBE_BASE + size);
 		u32 value, rb;
 
 		*base = 0x12345678;
@@ -289,8 +315,7 @@ int main(void)
 	check_column_bank();
 
 	if (PKG_type == KGD && en7528_half_size()) {
-		DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300u) | 0x100u,
-				DRAMC_CONF1);
+		DRAMC_WRITE_REG((DRAMC_READ_REG(DRAMC_CONF1) & ~0x300u) | 0x100u, DRAMC_CONF1);
 		REG32(0xbfb00074) = 0x104;
 	}
 

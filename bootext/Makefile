@@ -5,12 +5,23 @@
 define bootext/check/composite
 	@set -eu; \
 		end_hex=`$(TOOL_NM) -n "$(BOOTEXT_DDR_ELF)" | awk '$$3 == "_end" { print $$1; exit }'`; \
-		test -n "$$end_hex" || { echo "error: cannot find $(DEVICE_SOC) DRAMC _end" >&2; exit 1; }; \
+		ddr_entry=`$(TOOL_NM) -n "$(BOOTEXT_DDR_ELF)" | awk '$$3 == "ddr_entry" { print $$1; exit }'`; \
+		chain_entry=`$(TOOL_NM) -n "$(BOOTEXT_CHAIN_ELF)" | awk '$$3 == "_start" { print $$1; exit }'`; \
+		chain_end=`$(TOOL_NM) -n "$(BOOTEXT_CHAIN_ELF)" | awk '$$3 == "__image_end" { print $$1; exit }'`; \
+		test -n "$$end_hex" -a -n "$$ddr_entry" -a -n "$$chain_entry" -a -n "$$chain_end" || { \
+			echo "error: missing $(DEVICE_SOC) bootext layout symbols" >&2; exit 1; }; \
 		end=$$((0x$$end_hex)); \
 		chain=$$(( $(BOOTEXT_CHAINLOADER_BASE) )); \
 		limit=$$(( $(BOOTEXT_BASE) + $(BOOTEXT_SRAM_SIZE) )); \
+		test $$((0x$$ddr_entry)) -eq $$(( $(BOOTEXT_BASE) )) || { echo 'unexpected DRAMC entry' >&2; exit 1; }; \
+		test $$((0x$$chain_entry)) -eq $$chain || { echo 'unexpected receiver entry' >&2; exit 1; }; \
+		test $$chain -eq $$(( $(BOOTEXT_BASE) + $(BOOTEXT_CHAIN_OFFSET) )) || { echo 'receiver offset/address mismatch' >&2; exit 1; }; \
 		if [ $$end -gt $$chain ]; then \
 			echo "error: $(DEVICE_SOC) DRAMC runtime end 0x$$end_hex overlaps chainloader at $(BOOTEXT_CHAINLOADER_BASE)" >&2; \
+			exit 1; \
+		fi; \
+		if [ $$((0x$$chain_end)) -gt $$limit ]; then \
+			echo "error: $(DEVICE_SOC) receiver BSS/runtime exceeds bootext SRAM limit" >&2; \
 			exit 1; \
 		fi; \
 		chain_size=`wc -c < "$(BOOTEXT_CHAIN_IMAGE)"`; \
@@ -26,6 +37,20 @@ define bootext/compile/composite
 	"$(HOST_TOOL)" bootext --dramc "$(BOOTEXT_DDR_IMAGE)" --chainloader "$(BOOTEXT_CHAIN_IMAGE)" \
 		--chain-offset $(BOOTEXT_CHAIN_OFFSET) --max-size $(BOOTEXT_SRAM_SIZE) --output "$(BOOTEXT_OUTPUT).tmp"
 	@mv -f "$(BOOTEXT_OUTPUT).tmp" "$(BOOTEXT_OUTPUT)"
+endef
+
+define bootext/compile/dramc-only
+	@set -eu; \
+		entry=`$(TOOL_NM) -n "$(BOOTEXT_DDR_ELF)" | awk '$$3 == "ddr_entry" { print $$1; exit }'`; \
+		end=`$(TOOL_NM) -n "$(BOOTEXT_DDR_ELF)" | awk '$$3 == "_end" { print $$1; exit }'`; \
+		test -n "$$entry" -a -n "$$end" || { echo 'missing EN7580 bootext symbols' >&2; exit 1; }; \
+		test $$((0x$$entry)) -eq $$(( $(BOOTEXT_BASE) )) || { echo 'unexpected EN7580 bootext entry' >&2; exit 1; }; \
+		test $$((0x$$end)) -le $$(( $(BOOTEXT_SRAM_LIMIT) )) || { echo 'EN7580 bootext overlaps the SRAM stack' >&2; exit 1; }; \
+		test $$(wc -c < "$(BOOTEXT_DDR_IMAGE)") -le $$(( $(BOOTEXT_SRAM_LIMIT) - $(BOOTEXT_BASE) )) || { \
+			echo 'EN7580 bootext binary exceeds its SRAM window' >&2; exit 1; }; \
+		mkdir -p "$(dir $(BOOTEXT_OUTPUT))"; \
+		cp "$(BOOTEXT_DDR_IMAGE)" "$(BOOTEXT_OUTPUT).tmp"; \
+		mv -f "$(BOOTEXT_OUTPUT).tmp" "$(BOOTEXT_OUTPUT)"
 endef
 
 define bootext/check/checked-wrapper
@@ -54,12 +79,12 @@ define bootext/compile/checked-wrapper
 	@printf '  CC         %s\n' bootstrap.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(BOOTEXT_SIZE_OPT) -G0 -Wall \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/chainloader" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/chainloader" \
 		-c "$(SRCTREE)/bootext/en751221-bootstrap.c" -o "$(BOOTEXT_BUILD)/bootstrap.o"
 	@printf '  CC         %s\n' uart.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
 		-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector $(BOOTEXT_SIZE_OPT) -G0 -Wall \
-		-I"$(SRCTREE)/include" -I"$(SRCTREE)/chainloader" \
+		$(PROJECT_INCLUDES) -I"$(SRCTREE)/chainloader" \
 		-c "$(SRCTREE)/chainloader/uart.c" -o "$(BOOTEXT_BUILD)/uart.o"
 	@printf '  CC         %s\n' blobs.o
 	$(TOOL_CC) $(TOOL_CC_TARGET) $(TARGET_ENDIAN) -mabi=32 -mips32r2 -msoft-float -mno-abicalls \

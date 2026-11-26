@@ -17,8 +17,7 @@ u32 chainloader_uart_tx_count(void)
 
 void uart_putc(char c)
 {
-	while (!(mmio_read32(AIROHA_UART_BASE + AIROHA_UART_LSR) &
-		 AIROHA_UART_LSR_THRE))
+	while (!(mmio_read32(AIROHA_UART_BASE + AIROHA_UART_LSR) & AIROHA_UART_LSR_THRE))
 		;
 	mmio_write32(AIROHA_UART_BASE + AIROHA_UART_THR, (u8)c);
 	tx_chars++;
@@ -44,8 +43,7 @@ static void uart_puts_text(const char *s)
 	}
 }
 
-static void uart_put_unsigned(unsigned int value, unsigned int base,
-			      unsigned int width, char pad)
+static void uart_put_unsigned(unsigned int value, unsigned int base, unsigned int width, char pad)
 {
 	char buf[16];
 	unsigned int n = 0;

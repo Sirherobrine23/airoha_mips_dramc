@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "en751221_ddr.h"
 
-#define UCLK_20M_115200 59904U
+#define UCLK_20M_115200	59904U
 
 void uart_init(void)
 {
@@ -12,7 +12,7 @@ void uart_init(void)
 	UART8(CR_UART_IER) = UART_IER;
 	UART8(CR_UART_LCR) = UART_BRD_ACCESS;
 	word = (UCLK_20M_115200 << 16) | UART_XYD_Y;
-	MMIO32(CR_UART_XYD) = word;
+	readl(CR_UART_XYD) = word;
 	UART8(CR_UART_BRDL) = UART_BRDL_20M;
 	UART8(CR_UART_BRDH) = UART_BRDH_20M;
 	UART8(CR_UART_LCR) = UART_LCR;
@@ -20,7 +20,8 @@ void uart_init(void)
 
 void serial_outc(char c)
 {
-	while (!(UART8(CR_UART_LSR) & LSR_THRE));
+	while (!(UART8(CR_UART_LSR) & LSR_THRE))
+		;
 	UART8(CR_UART_THR) = (unsigned char)c;
 }
 

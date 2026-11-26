@@ -18,8 +18,8 @@ extern void mempll_init_ddr1066(u32 xtal);
 extern void mempll_init_ddr1333(u32 xtal);
 extern int mt_mempll_cali(void);
 
-#define W(o, v) DRAMC_WRITE_REG((v), (o))
-#define R(o)    DRAMC_READ_REG(o)
+#define W(o, v)	DRAMC_WRITE_REG((v), (o))
+#define R(o)	DRAMC_READ_REG(o)
 
 static int wait_spcmd(u32 mask)
 {

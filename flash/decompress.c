@@ -54,13 +54,13 @@ static void lzma_free(void *opaque, void *address)
 	(void)address;
 }
 
-int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len,
-		      uint8_t *dst, size_t dst_len, void *work, size_t work_len)
+int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len, uint8_t *dst,
+		      size_t dst_len, void *work, size_t work_len)
 {
 	struct arena arena = { work, work_len, 0 };
 
-	if (!src || !dst || !work || !src_len || !dst_len ||
-	    ((uintptr_t)work & 7) || src_len > UINT32_MAX || dst_len > UINT32_MAX)
+	if (!src || !dst || !work || !src_len || !dst_len || ((uintptr_t)work & 7) ||
+	    src_len > UINT32_MAX || dst_len > UINT32_MAX)
 		return -1;
 	if (algorithm == ECONET_COMP_GZIP) {
 		z_stream stream = { 0 };
@@ -101,23 +101,22 @@ int econet_decompress(uint32_t algorithm, const uint8_t *src, size_t src_len,
 		/* Bound the probability models to our 64 KiB workspace. */
 		if (lc + lp > 4)
 			return -1;
-		dict = (uint32_t)src[1] | (uint32_t)src[2] << 8 |
-		       (uint32_t)src[3] << 16 | (uint32_t)src[4] << 24;
+		dict = (uint32_t)src[1] | (uint32_t)src[2] << 8 | (uint32_t)src[3] << 16 |
+		       (uint32_t)src[4] << 24;
 		if (dict > 0x1000000U)
 			return -1;
-		declared = (uint32_t)src[5] | (uint32_t)src[6] << 8 |
-			   (uint32_t)src[7] << 16 | (uint32_t)src[8] << 24;
-		declared_unknown = src[5] == 0xff && src[6] == 0xff &&
-				   src[7] == 0xff && src[8] == 0xff &&
-				   src[9] == 0xff && src[10] == 0xff &&
+		declared = (uint32_t)src[5] | (uint32_t)src[6] << 8 | (uint32_t)src[7] << 16 |
+			   (uint32_t)src[8] << 24;
+		declared_unknown = src[5] == 0xff && src[6] == 0xff && src[7] == 0xff &&
+				   src[8] == 0xff && src[9] == 0xff && src[10] == 0xff &&
 				   src[11] == 0xff && src[12] == 0xff;
 		/* dst_len is bounded to u32, so known LZMA sizes need no u64 math. */
 		if (!declared_unknown &&
 		    (src[9] || src[10] || src[11] || src[12] || declared != dst_len))
 			return -1;
 		in_size = src_len - 13;
-		ret = LzmaDecode(dst, &out_size, src + 13, &in_size, src, 5,
-				 LZMA_FINISH_END, &status, &allocator.ops);
+		ret = LzmaDecode(dst, &out_size, src + 13, &in_size, src, 5, LZMA_FINISH_END,
+				 &status, &allocator.ops);
 		if (ret != SZ_OK || in_size != src_len - 13 || out_size != dst_len)
 			return -1;
 		if (status == LZMA_STATUS_FINISHED_WITH_MARK ||

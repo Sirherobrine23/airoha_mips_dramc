@@ -10,24 +10,30 @@ define Device/en751221
 	SOC_RECOVERY_CHAINLOADER := y
 	SOC_BOOTEXT := y
 
+	DRAMC_DIR := $$(SRCTREE)/dramc/en7512/soc/en751221
+	DRAMC_SHARED_DIR := $$(SRCTREE)/dramc/en7512/common
 	DRAMC_LDS := $$(DRAMC_DIR)/ddr.lds
-	DRAMC_INCLUDES := -I$$(DRAMC_DIR)
-	DRAMC_SHARED_DIR := $$(SRCTREE)/includes/dramc
-	DRAMC_SHARED_OBJS := dramc_dle_cal.o dramc_dqs_gw_cal.o
+	DRAMC_INCLUDES := -I$$(DRAMC_DIR) -I$$(DRAMC_SHARED_DIR)
+	DDR_CPPFLAGS := -DUART_ACCESS_BYTE_BE
+	DRAMC_LDFLAGS := --gc-sections
+	DRAMC_COMMON_OBJS := uart.o timer.o
+	DRAMC_SHARED_OBJS := \
+		dramc_core.o \
+		dramc_dq_dqs_cal.o \
+		dramc_test.o \
+		dramc_dle_cal.o \
+		dramc_dqs_gw_cal.o
 	DRAMC_OBJS := \
 		head.o \
-		setup.o \
-		main.o \
-		init.o \
-		time.o \
-		string.o \
-		dramc.o \
+		system.o \
+		uart.o \
+		timer.o \
+		dramc_core.o \
 		dramc_dq_dqs_cal.o \
 		dramc_test.o \
 		dramc_dle_cal.o \
 		dramc_dqs_gw_cal.o \
-		en7512_dramc_init.o \
-		spram.o
+		init.o
 
 	FLASH_STANDALONE_CPPFLAGS := -DECONET_NAND_PAGE_SHIFT=11
 	TCBOOT_BOOT2 := y
@@ -47,6 +53,7 @@ define Device/en751221
 	BOOTEXT_DDR_MAX_SIZE := 0x5800
 	BOOTEXT_CHAIN_MAX_SIZE := 0x4000
 	BOOTEXT_SIZE_OPT := $$(if $$(filter 1,$$(LLVM)),-Oz,-Os)
+	BOOTEXT_DRAMC_CPPFLAGS := -DUART_ACCESS_BYTE_BE
 	BOOTEXT_CHAINLOADER_CPPFLAGS := -DEN751221_BOOTEXT
 endef
 

@@ -28,7 +28,7 @@
 #define UBI_WORK_SIZE			0x10000U   /* 64 KiB scratch area */
 
 #ifndef UBI_MAX_SCAN_SIZE
-#define UBI_MAX_SCAN_SIZE		0x10000000U /* 256 MiB safety ceiling */
+#define UBI_MAX_SCAN_SIZE	0x10000000U /* 256 MiB safety ceiling */
 #endif
 
 enum econet_ubi_status {

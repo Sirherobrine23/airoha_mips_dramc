@@ -24,12 +24,11 @@ def main():
         '#define LD_VERSION_STRING "ld.lld"\n')
 
     entries = []
-    for directory in ("dramc", "flash", "chainloader", "bootext", "includes", "tools", "tests"):
+    for directory in ("common", "dramc", "flash", "bootext", "includes", "tools", "tests"):
         for source in sorted((ROOT / directory).rglob("*")):
             if source.suffix not in (".c", ".h") or source.name == "tmp_version.h":
                 continue
             relative = source.relative_to(ROOT)
-            # Preserved binary/decompiler references are not build sources.
             if "blobs" in relative.parts:
                 continue
             host = relative.parts[0] == "tools" or relative == Path("tests/inspect.c")
@@ -45,13 +44,14 @@ def main():
                           "-EB" if big else "-EL", "-mabi=32", "-mips32r2", "-msoft-float",
                           "-mno-abicalls", "-fno-pic", "-fno-pie", "-ffreestanding",
                           "-fno-builtin", "-fno-stack-protector", "-G0"]
-            for include in (generated, ROOT / "includes", ROOT / "dramc" / soc,
-                            ROOT / "includes/dramc", ROOT / "flash", ROOT / "chainloader"):
+            soc_dir = ROOT / ("dramc/en7580" if soc == "en7580" else f"dramc/en7512/soc/{soc}")
+            for include in (generated, ROOT / "includes", soc_dir,
+                            ROOT / "dramc/en7512/common", ROOT / "flash", ROOT / "bootext"):
                 flags += ["-I" + str(include)]
             if relative.parts[0] == "flash":
                 flags += ["-I" + str(ROOT / "flash/decompress"),
                           "-DZ_SOLO", "-DNOBYFOUR", "-D_LZMA_SIZE_OPT"]
-            if relative.parts[0] == "chainloader" and soc in ("en751627", "en7528"):
+            if relative.parts[0] == "bootext" and soc in ("en751627", "en7528"):
                 flags += ["-DCHAINLOADER_" + soc.upper()]
             if relative.parts[:2] == ("tests", "en7512"):
                 flags += ["-include", str(ROOT / "tests/en7512/mmio.h")]

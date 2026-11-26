@@ -79,6 +79,12 @@ def main():
                 target = work / (soc + ("-baseline" if baseline else "-shared"))
                 target.mkdir()
                 sources = []
+                if baseline:
+                    for header in (f"{soc}_ddr.h",
+                                   *(("calibration_bits.h",) if soc == "en751221" else ())):
+                        (target / header).write_bytes(run([
+                            "git", "-C", str(ROOT), "show",
+                            f"{BASELINE}:dramc/{soc}/{header}"]))
                 for stem in ("dramc_dle_cal", "dramc_dqs_gw_cal"):
                     if baseline:
                         source = target / (stem + ".c")
@@ -86,17 +92,17 @@ def main():
                             "git", "-C", str(ROOT), "show",
                             f"{BASELINE}:dramc/{soc}/{stem}.c"]))
                     else:
-                        source = ROOT / "includes/dramc" / (stem + ".c")
+                        source = ROOT / "dramc/en7512/common" / (stem + ".c")
                     sources.append(source)
                 sources += [ROOT / "tests/en7512/trace.c", ROOT / "tests/en7512/start.S"]
                 if not baseline:
-                    sources.insert(0, ROOT / "dramc" / soc / "dramc_test.c")
+                    sources.insert(0, ROOT / "dramc/en7512/common/dramc_test.c")
                 flags = [flag, "-mabi=32", "-mips32r2", "-msoft-float", "-mno-abicalls",
                          "-fno-pic", "-fno-pie", "-ffreestanding", "-fno-builtin",
                          "-fno-stack-protector", "-Os", "-G0", "-std=gnu11",
-                         "-I" + str(ROOT / "dramc" / soc),
+                         "-I" + str(target if baseline else ROOT / "dramc/en7512/soc" / soc),
+                         "-I" + str(ROOT / "dramc/en7512/common"),
                          "-I" + str(ROOT / "includes"),
-                         "-I" + str(ROOT / "includes/dramc"),
                          "-include", str(ROOT / "tests/en7512/mmio.h")]
                 if LLVM:
                     flags += ["--target=" + ("mips-linux-gnu" if endian == ">" else "mipsel-linux-gnu")]

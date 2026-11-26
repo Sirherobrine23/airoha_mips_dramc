@@ -43,6 +43,7 @@ define Device/Init
 	DRAMC_OBJS :=
 	DRAMC_SHARED_DIR :=
 	DRAMC_SHARED_OBJS :=
+	DRAMC_COMMON_OBJS :=
 	DRAMC_GNU_ASM_OBJS :=
 	DRAMC_RELOC_SRCS :=
 	DRAMC_CHECK_RELOCS := n
@@ -108,7 +109,7 @@ DEVICE_VARS := \
 	CROSS_COMPILE GNU_CROSS_COMPILE GNU_CC SIZE_OPT TARGET_ENDIAN \
 	TOOL_CC TOOL_LD TOOL_OBJCOPY TOOL_NM TOOL_CC_TARGET \
 	DRAMC_DIR DRAMC_BUILD DRAMC_OUTPUT DRAMC_LDS DRAMC_INCLUDES DRAMC_OBJS \
-	DRAMC_SHARED_DIR DRAMC_SHARED_OBJS \
+	DRAMC_SHARED_DIR DRAMC_SHARED_OBJS DRAMC_COMMON_OBJS \
 	DRAMC_GNU_ASM_OBJS DRAMC_RELOC_SRCS DRAMC_CHECK_RELOCS DRAMC_PREBUILT \
 	DRAMC_PREBUILT_SIZE DRAMC_LDFLAGS DDR_CPPFLAGS \
 	FLASH_STANDALONE_CPPFLAGS CHAIN_BUILD CHAIN_OUTPUT PAYLOAD_OFFSET UBI_OFFSET \
@@ -192,6 +193,17 @@ $(1)-bootext: $(1)-bootext-dramc $(1)-bootext-chainloader $$(HOST_TOOL)
 	@printf '  BOOTEXT    %s\n' "$$(BOOTEXT_OUTPUT)"
 endef
 
+define Device/Build/BootextUnified
+$(call Device/Export,$(1)-bootext)
+
+.PHONY: $(1)-bootext
+$(1): $(1)-bootext
+
+$(1)-bootext: $$(HOST_TOOL)
+	$$(call bootext/compile/unified)
+	@printf '  BOOTEXT    %s\n' "$$(BOOTEXT_OUTPUT)"
+endef
+
 define Device/Build/BootextDramc
 $(call Device/Export,$(1)-bootext)
 $(call Device/Export,$(1)-bootext-dramc)
@@ -243,7 +255,7 @@ define Device/Register
 	$(eval $(call Device/Build/Common,$(1)))
 
 	$(if $(filter y,$(SOC_RECOVERY_CHAINLOADER)),$(eval $(call Device/Build/Recovery,$(1))),$(eval $(call Device/Build/RecoveryUnsupported,$(1))))
-	$(if $(filter y,$(SOC_BOOTEXT)),$(if $(filter dramc-only,$(BOOTEXT_MODE)),$(eval $(call Device/Build/BootextDramc,$(1))),$(eval $(call Device/Build/Bootext,$(1)))),$(eval $(call Device/Build/BootextUnsupported,$(1))))
+	$(if $(filter y,$(SOC_BOOTEXT)),$(if $(filter unified,$(BOOTEXT_MODE)),$(eval $(call Device/Build/BootextUnified,$(1))),$(if $(filter dramc-only,$(BOOTEXT_MODE)),$(eval $(call Device/Build/BootextDramc,$(1))),$(eval $(call Device/Build/Bootext,$(1))))),$(eval $(call Device/Build/BootextUnsupported,$(1))))
 	$(if $(filter y,$(SOC_TCBOOT)),$(eval $(call Device/Build/TCBoot,$(1))),$(eval $(call Device/Build/TCBootUnsupported,$(1))))
 
 	$(if $(value Device/$(1)/extra),$(eval $(call Device/$(1)/extra,$(1))))

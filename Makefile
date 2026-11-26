@@ -36,7 +36,6 @@ REQUESTED_SOC := $(strip $(SOC))
 include $(SRCTREE)/base/compiler.mk
 include $(SRCTREE)/dramc/Makefile
 include $(SRCTREE)/flash/Makefile
-include $(SRCTREE)/chainloader/Makefile
 include $(SRCTREE)/bootext/Makefile
 include $(SRCTREE)/images/Makefile
 
@@ -168,7 +167,7 @@ format:
 			done; \
 		' sh "$(CLANG_FORMAT)" "$$tmp" "$(AWK)" < "$$tmp/files"
 
-$(HOST_TOOL): $(SRCTREE)/tools/econet-image.c $(SRCTREE)/flash/ecnt.h
+$(HOST_TOOL): $(SRCTREE)/tools/econet-image.c $(SRCTREE)/includes/ecnt.h
 	@mkdir -p "$(dir $@)"
 	@tmp="$@.$$$$.tmp"; \
 		$(HOSTCC) $(HOSTCFLAGS) $(PROJECT_INCLUDES) "$<" -o "$$tmp" && mv -f "$$tmp" "$@"
@@ -194,7 +193,7 @@ test-en7512:
 .PHONY: test-en7512
 
 test-mips-compression:
-	@python3 "$(SRCTREE)/tests/mips-compression.py"
+	@$(PYTHON) -P "$(SRCTREE)/tests/mips-compression.py"
 
 test-ubi: $(HOST_TOOL)
 	@HOSTCC="$(HOSTCC)" $(PYTHON) -P "$(SRCTREE)/tests/ubi.py" "$(HOST_TOOL)"

@@ -28,7 +28,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include "../flash/ecnt.h"
+#include <ecnt.h>
 
 #define ARRAY_SIZE(x)		(sizeof(x) / sizeof((x)[0]))
 

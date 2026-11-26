@@ -2,6 +2,9 @@
 # Toolchain context.  This macro is evaluated once for every Device/<soc>.
 # Do not use ?= here: every device must replace the previous device context.
 
+MIPS_COMMON_CFLAGS := -mabi=32 -mips32r2 -msoft-float -mno-abicalls \
+	-fno-pic -fno-pie -ffreestanding -fno-builtin -fno-stack-protector -G0
+
 # Command-line variables still have GNU make's normal higher precedence, so a
 # caller may explicitly override CROSS_COMPILE/TOOL_CC/etc.
 define compiler/prepare

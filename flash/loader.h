@@ -6,18 +6,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <uart.h>
-#include "sfc.h"
+#include <sfc.h>
+#include <ecnt.h>
 
 typedef uint8_t u8;
 typedef uint32_t u32;
 
-void uart_put_hex32(uint32_t value);
-
 #define __iomem
 #define BIT(n)			(1U << (n))
 #define ARRAY_SIZE(a)		(sizeof(a) / sizeof((a)[0]))
-#define ETIMEDOUT		110
-#define ECONET_SFC_BASE		0xbfa10000U
 #define REG(a)			(*(volatile u32 *)(a))
 #define __raw_readl(p)		(*(volatile u32 *)(p))
 #define __raw_writel(v, p)	(*(volatile u32 *)(p) = (v))
@@ -40,7 +37,5 @@ void uart_put_hex32(uint32_t value);
 #ifndef UBOOT_LOAD_ADDR
 #define UBOOT_LOAD_ADDR	PAYLOAD_RAM_MIN
 #endif
-
-#include "ecnt.h"
 
 #endif

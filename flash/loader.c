@@ -11,12 +11,12 @@
 #define UBI_STAGING_SIZE	(PAYLOAD_RAM_MIN - DECOMP_INPUT_ADDR)
 
 /* U-Boot legacy image (uImage) header constants. */
-#define IH_MAGIC		0x27051956U
-#define IH_HEADER_SIZE		64U
-#define IH_ARCH_MIPS		5U
-#define IH_COMP_NONE		0U
-#define IH_COMP_GZIP		1U
-#define IH_COMP_LZMA		3U
+#define IH_MAGIC	0x27051956U
+#define IH_HEADER_SIZE	64U
+#define IH_ARCH_MIPS	5U
+#define IH_COMP_NONE	0U
+#define IH_COMP_GZIP	1U
+#define IH_COMP_LZMA	3U
 
 struct ecnt_desc {
 	u32 version;

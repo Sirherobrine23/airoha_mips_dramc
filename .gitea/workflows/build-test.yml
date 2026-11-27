@@ -3,8 +3,20 @@ name: build-test
 on:
   push:
     branches: ["main"]
+    paths:
+      - "**/*.c"
+      - "**/*.h"
+      - "**/*.S"
+      - "**/*.s"
+      - "**/*.lds"
   pull_request:
     branches: ["main"]
+    paths:
+      - "**/*.c"
+      - "**/*.h"
+      - "**/*.S"
+      - "**/*.s"
+      - "**/*.lds"
 
 jobs:
   # Fast sanity gate: builds the native host tool and runs the C selftests

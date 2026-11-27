@@ -1,4 +1,4 @@
-# Airoha MIPS DRAM calibration and early chainload
+# Airoha MIPS DRAM calibration and bootext
 
 Standalone early-boot sources for Airoha/EcoNet MIPS SoCs.  The repository
 contains the DRAM controller initialization/calibration stages and the small
@@ -9,14 +9,14 @@ outside the firmware build (for example in the OpenWrt image pipeline).
 ## Supported SoCs
 
 - `en751221`
-- `en751627` ([DRAMC port](dramc/en751627/README.md), [bootext/chainloader](bootext/en751627.md); experimental, hardware validation pending)
+- `en751627`
 - `en7528`
 - `en7580` (DRAMC port; experimental, hardware validation pending)
 
 ## Build
 
 Builders add `includes/` to the header search path.
-Shared EN7512 calibration sources and headers live in
+Shared EN751221 calibration sources and headers live in
 `includes/dramc/`; SoC-specific sources stay under `dramc/<soc>/`.
 
 The normal interface is deliberately per-SoC. The top-level `Makefile` is only
